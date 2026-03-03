@@ -19,14 +19,25 @@ export function usePriorityScore() {
   const items = useMemo(() => {
     const priorityItems: PriorityItem[] = [];
 
+    // Known noise senders to skip in priority engine
+    const NOISE_SENDERS = /noreply|no-reply|newsletter|marketing|notification|donotreply|mailer|linkedin|twitter|digest|promo|offer|deal/i;
+
     for (const email of emails) {
-      if (email.is_read) continue; // only surface unread emails in priority engine
+      if (email.is_read) continue;
+      if (NOISE_SENDERS.test(email.from_email || '') || NOISE_SENDERS.test(email.from_name || '')) continue;
+
       const subject = email.subject?.toLowerCase() || '';
-      const isFinancial = /invoice|payment|billing|budget|revenue|cost|expense|contract|pricing/.test(subject);
-      const isLegal = /legal|lawsuit|litigation|compliance|npi|attorney|counsel/.test(subject);
-      const isUrgent = /urgent|asap|critical|emergency|action required|deadline/.test(subject);
-      // Age-based overdue: emails older than 1 day without reply count as overdue
+      const isFinancial = /invoice|payment|billing|budget|revenue|cost|expense|contract|pricing|tax/.test(subject);
+      const isLegal = /legal|lawsuit|litigation|compliance|npi|attorney|counsel|depo|deposition/.test(subject);
+      const isUrgent = /urgent|asap|critical|emergency|action required|deadline|time.sensitive/.test(subject);
+      const isFromSonance = (email.from_email || '').endsWith('@sonance.com');
+
       const receivedDaysAgo = Math.floor((Date.now() - new Date(email.received_at).getTime()) / (1000 * 60 * 60 * 24));
+
+      // Base priority: internal Sonance emails rank higher; recent emails rank higher
+      const recencyBonus = receivedDaysAgo === 0 ? 10 : receivedDaysAgo === 1 ? 5 : 0;
+      const basePriority = (isFromSonance ? 30 : 22) + recencyBonus;
+
       priorityItems.push({
         title: email.subject,
         source: 'email',
@@ -39,7 +50,7 @@ export function usePriorityScore() {
         hardDeadlineWithin7: false,
         financial: isFinancial,
         legal: isLegal,
-        basePriority: 25,
+        basePriority,
       });
     }
 

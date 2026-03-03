@@ -5,6 +5,7 @@ import { TabBar, type TabId } from "@/components/layout/TabBar";
 import { Footer } from "@/components/layout/Footer";
 import { CommandCenterView } from "@/components/views/CommandCenterView";
 import { PeopleView } from "@/components/views/PeopleView";
+import { usePeople } from "@/hooks/usePeople";
 import { TimelineView } from "@/components/views/TimelineView";
 import { TrendsView } from "@/components/views/TrendsView";
 import { SalesView } from "@/components/views/SalesView";
@@ -23,6 +24,7 @@ function HomeContent() {
   const [activeTab, setActiveTab] = useState<TabId>("command-center");
   const [eodOpen, setEodOpen] = useState(false);
   const { loading, fetchedAt, error, refetch } = useLiveData();
+  const { people } = usePeople();
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
@@ -45,7 +47,7 @@ function HomeContent() {
       <main className="px-6 pb-8">
         {activeTab === "command-center" && <CommandCenterView />}
         {activeTab === "sales" && <SalesView />}
-        {activeTab === "people" && <PeopleView />}
+        {activeTab === "people" && <PeopleView people={people} />}
         {activeTab === "timeline" && <TimelineView />}
         {activeTab === "trends" && <TrendsView />}
       </main>
