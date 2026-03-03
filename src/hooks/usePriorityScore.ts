@@ -20,19 +20,26 @@ export function usePriorityScore() {
     const priorityItems: PriorityItem[] = [];
 
     for (const email of emails) {
+      if (email.is_read) continue; // only surface unread emails in priority engine
+      const subject = email.subject?.toLowerCase() || '';
+      const isFinancial = /invoice|payment|billing|budget|revenue|cost|expense|contract|pricing/.test(subject);
+      const isLegal = /legal|lawsuit|litigation|compliance|npi|attorney|counsel/.test(subject);
+      const isUrgent = /urgent|asap|critical|emergency|action required|deadline/.test(subject);
+      // Age-based overdue: emails older than 1 day without reply count as overdue
+      const receivedDaysAgo = Math.floor((Date.now() - new Date(email.received_at).getTime()) / (1000 * 60 * 60 * 24));
       priorityItems.push({
         title: email.subject,
         source: 'email',
         url: email.outlook_url,
-        daysOverdue: email.days_overdue || 0,
-        needsReply: email.needs_reply,
-        urgent: false,
-        requiresAction: email.needs_reply,
+        daysOverdue: Math.max(0, receivedDaysAgo - 1),
+        needsReply: true,
+        urgent: isUrgent,
+        requiresAction: true,
         multiplePeopleWaiting: false,
         hardDeadlineWithin7: false,
-        financial: false,
-        legal: false,
-        basePriority: email.is_read ? 10 : 20,
+        financial: isFinancial,
+        legal: isLegal,
+        basePriority: 25,
       });
     }
 
