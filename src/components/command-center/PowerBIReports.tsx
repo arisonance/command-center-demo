@@ -22,6 +22,61 @@ function saveStoredUrls(urls: Record<string, string>) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(urls));
 }
 
+
+function ZoomableReport({ src, title, defaultZoom = 0.7 }: { src: string; title: string; defaultZoom?: number }) {
+  const [zoom, setZoom] = useState(defaultZoom);
+  const containerHeight = 680;
+  const scaledHeight = Math.round(containerHeight / zoom);
+  const scaledWidth = Math.round(100 / zoom);
+
+  return (
+    <div>
+      {/* Zoom controls */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-[var(--tab-bg)] border-b border-[var(--bg-card-border)]">
+        <span className="text-[10px] text-text-muted uppercase tracking-wider">Zoom</span>
+        <button
+          onClick={() => setZoom(z => Math.max(0.3, parseFloat((z - 0.1).toFixed(1))))}
+          className="w-6 h-6 rounded border border-[var(--bg-card-border)] text-text-muted hover:text-text-body hover:border-accent-amber/30 transition-colors cursor-pointer text-sm font-bold flex items-center justify-center"
+        >−</button>
+        <input
+          type="range" min="0.3" max="1.2" step="0.05"
+          value={zoom}
+          onChange={e => setZoom(parseFloat(e.target.value))}
+          className="w-28 accent-amber-400 cursor-pointer"
+        />
+        <button
+          onClick={() => setZoom(z => Math.min(1.2, parseFloat((z + 0.1).toFixed(1))))}
+          className="w-6 h-6 rounded border border-[var(--bg-card-border)] text-text-muted hover:text-text-body hover:border-accent-amber/30 transition-colors cursor-pointer text-sm font-bold flex items-center justify-center"
+        >+</button>
+        <span className="text-[11px] text-text-muted tabular-nums w-8">{Math.round(zoom * 100)}%</span>
+        <button
+          onClick={() => setZoom(defaultZoom)}
+          className="text-[10px] text-text-muted hover:text-text-body transition-colors cursor-pointer ml-1"
+        >Reset</button>
+      </div>
+      {/* Scaled iframe container */}
+      <div style={{ height: containerHeight, overflow: "hidden", position: "relative" }}>
+        <div style={{
+          width: `${scaledWidth}%`,
+          height: scaledHeight,
+          transform: `scale(${zoom})`,
+          transformOrigin: "top left",
+          position: "absolute",
+          top: 0,
+          left: 0,
+        }}>
+          <iframe
+            src={src}
+            style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+            allowFullScreen
+            title={title}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PowerBIReports() {
   const { reportConfigs, loading } = usePowerBI();
   const [expandedReport, setExpandedReport] = useState<string | null>("trends-auto");
@@ -214,13 +269,7 @@ export function PowerBIReports() {
                 {isExpanded && !isEditing && (
                   <div className="border-t border-[var(--bg-card-border)]">
                     {embedUrl ? (
-                      <iframe
-                        src={embedUrl}
-                        className="w-full border-0"
-                        style={{ height: 680 }}
-                        allowFullScreen
-                        title={report.report_name}
-                      />
+                      <ZoomableReport src={embedUrl} title={report.report_name} />
                     ) : (
                       <div className="p-5">
                         <p className="text-xs text-text-muted mb-3">

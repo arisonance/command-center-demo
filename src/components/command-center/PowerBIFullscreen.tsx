@@ -43,6 +43,7 @@ export function PowerBIFullscreen({ reportName, embedUrl, onClose }: Props) {
   const [sent, setSent] = useState(false);
   const [sendError, setSendError] = useState("");
   const [capturing, setCapturing] = useState(false);
+  const [zoom, setZoom] = useState(0.75);
 
   // Close on Escape
   useEffect(() => {
@@ -164,14 +165,40 @@ export function PowerBIFullscreen({ reportName, embedUrl, onClose }: Props) {
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
         {/* Report iframe */}
-        <div className={cn("flex-1 min-w-0 transition-all duration-300", clipMode ? "w-[60%]" : "w-full")}>
-          <iframe
-            ref={iframeRef}
-            src={embedUrl}
-            className="w-full h-full border-0"
-            allowFullScreen
-            title={reportName}
-          />
+        <div className={cn("flex-1 min-w-0 transition-all duration-300 flex flex-col", clipMode ? "w-[60%]" : "w-full")}>
+          {/* Zoom bar */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-[#0d0d0d] border-b border-white/10 shrink-0">
+            <span className="text-[10px] text-white/40 uppercase tracking-wider">Zoom</span>
+            <button onClick={() => setZoom(z => Math.max(0.25, parseFloat((z - 0.05).toFixed(2))))}
+              className="w-6 h-6 rounded border border-white/10 text-white/50 hover:text-white transition-colors cursor-pointer text-sm font-bold flex items-center justify-center">−</button>
+            <input type="range" min="0.25" max="1.5" step="0.05" value={zoom}
+              onChange={e => setZoom(parseFloat(e.target.value))}
+              className="w-36 cursor-pointer" />
+            <button onClick={() => setZoom(z => Math.min(1.5, parseFloat((z + 0.05).toFixed(2))))}
+              className="w-6 h-6 rounded border border-white/10 text-white/50 hover:text-white transition-colors cursor-pointer text-sm font-bold flex items-center justify-center">+</button>
+            <span className="text-[11px] text-white/40 tabular-nums w-9">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(0.75)} className="text-[10px] text-white/30 hover:text-white/70 cursor-pointer transition-colors">Reset</button>
+          </div>
+          {/* Scaled iframe */}
+          <div className="flex-1 overflow-hidden relative">
+            <div style={{
+              width: `${Math.round(100 / zoom)}%`,
+              height: `${Math.round(100 / zoom)}%`,
+              transform: `scale(${zoom})`,
+              transformOrigin: "top left",
+              position: "absolute",
+              top: 0,
+              left: 0,
+            }}>
+              <iframe
+                ref={iframeRef}
+                src={embedUrl}
+                style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+                allowFullScreen
+                title={reportName}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Clip panel (slides in from right) */}
