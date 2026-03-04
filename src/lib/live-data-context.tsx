@@ -15,6 +15,7 @@ import type {
   Task,
   SalesforceOpportunity,
   Chat,
+  SlackFeedMessage,
 } from "./types";
 
 interface LiveDataState {
@@ -23,6 +24,7 @@ interface LiveDataState {
   tasks: Task[];
   opportunities: SalesforceOpportunity[];
   chats: Chat[];
+  slack: SlackFeedMessage[];
   loading: boolean;
   error: string | null;
   fetchedAt: Date | null;
@@ -40,6 +42,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [opportunities, setOpportunities] = useState<SalesforceOpportunity[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [slack, setSlack] = useState<SlackFeedMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
@@ -56,6 +59,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
       setTasks((data.tasks ?? []) as Task[]);
       setOpportunities((data.pipeline ?? []) as SalesforceOpportunity[]);
       setChats((data.chats ?? []) as Chat[]);
+      setSlack((data.slack ?? []) as SlackFeedMessage[]);
       setFetchedAt(new Date(data.fetchedAt));
       setError(null);
     } catch (e) {
@@ -87,6 +91,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
         tasks,
         opportunities,
         chats,
+        slack,
         loading,
         error,
         fetchedAt,

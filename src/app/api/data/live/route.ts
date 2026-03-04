@@ -4,6 +4,56 @@ const M365_CLIENT_ID = process.env.M365_CLIENT_ID!;
 const M365_TENANT_ID = process.env.M365_TENANT_ID!;
 const M365_REFRESH_TOKEN = process.env.M365_REFRESH_TOKEN!;
 const ASANA_PAT = process.env.ASANA_PAT!;
+const CORTEX_API_KEY = process.env.CORTEX_API_KEY!;
+const CORTEX_URL = 'https://cortex-bice.vercel.app/mcp/cortex';
+
+// ─── Cortex MCP client ────────────────────────────────────────────────────────
+
+let cortexSession: string | null = null;
+
+async function cortexInit(): Promise<string> {
+  if (cortexSession) return cortexSession;
+  const res = await fetch(CORTEX_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CORTEX_API_KEY,
+      'mcp-protocol-version': '2024-11-05',
+      'x-cortex-client': 'cortex-mcp-stdio',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 'init',
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'command-center', version: '1.0.0' } },
+    }),
+  });
+  const sessionId = res.headers.get('mcp-session-id');
+  if (sessionId) cortexSession = sessionId;
+  return sessionId ?? '';
+}
+
+async function cortexCall(sessionId: string, id: string, tool: string, args: Record<string, unknown>) {
+  const res = await fetch(CORTEX_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CORTEX_API_KEY,
+      'mcp-protocol-version': '2024-11-05',
+      'x-cortex-client': 'cortex-mcp-stdio',
+      'mcp-session-id': sessionId,
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id,
+      method: 'tools/call',
+      params: { name: tool, arguments: args },
+    }),
+  });
+  const data = await res.json() as { result?: { content?: { text?: string }[] } };
+  const text = data?.result?.content?.[0]?.text ?? '{}';
+  try { return JSON.parse(text); } catch { return {}; }
+}
+
+// ─── M365 direct (email + calendar — faster than Cortex) ─────────────────────
 
 async function getM365Token(): Promise<string> {
   const body = new URLSearchParams({
@@ -16,145 +66,93 @@ async function getM365Token(): Promise<string> {
     `https://login.microsoftonline.com/${M365_TENANT_ID}/oauth2/v2.0/token`,
     { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body }
   );
-  const data = await res.json();
-  if (!data.access_token) throw new Error(`M365 token error: ${JSON.stringify(data)}`);
+  const data = await res.json() as { access_token?: string };
+  if (!data.access_token) throw new Error('M365 token failed');
   return data.access_token;
 }
 
 async function fetchEmails(token: string) {
-  // Only Focused Inbox, last 30 days — no Junk/Spam/Deleted/Other
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const filter = encodeURIComponent(
-    `inferenceClassification eq 'focused' and isDraft eq false and receivedDateTime ge ${since}`
-  );
+  const filter = encodeURIComponent(`inferenceClassification eq 'focused' and isDraft eq false and receivedDateTime ge ${since}`);
   const res = await fetch(
     `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=40&$select=id,subject,from,receivedDateTime,isRead,hasAttachments,bodyPreview&$filter=${filter}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  const data = await res.json();
+  const data = await res.json() as { value?: Record<string, unknown>[] };
   const now = new Date().toISOString();
-  const sorted = (data.value ?? []).sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
-    new Date(b.receivedDateTime as string).getTime() - new Date(a.receivedDateTime as string).getTime()
-  );
-  return sorted.map((m: Record<string, unknown>) => {
-    const from = m.from as { emailAddress: { name: string; address: string } };
-    const receivedAt = m.receivedDateTime as string;
-    const daysDiff = Math.floor((Date.now() - new Date(receivedAt).getTime()) / (1000 * 60 * 60 * 24));
-    return {
-      id: m.id,
-      message_id: m.id,
-      subject: m.subject || '(no subject)',
-      from_name: from?.emailAddress?.name || from?.emailAddress?.address || '',
-      from_email: from?.emailAddress?.address || '',
-      preview: (m.bodyPreview as string)?.slice(0, 160) || '',
-      body_html: '',
-      received_at: receivedAt,
-      is_read: m.isRead as boolean,
-      folder: 'inbox',
-      has_attachments: m.hasAttachments as boolean,
-      outlook_url: `https://outlook.office.com/mail/inbox/id/${encodeURIComponent(m.id as string)}`,
-      needs_reply: !(m.isRead as boolean),
-      days_overdue: Math.max(0, daysDiff - 2),
-      synced_at: now,
-    };
-  });
+  return ((data.value ?? []) as Record<string, unknown>[])
+    .sort((a, b) => new Date(b.receivedDateTime as string).getTime() - new Date(a.receivedDateTime as string).getTime())
+    .map((m) => {
+      const from = m.from as { emailAddress: { name: string; address: string } };
+      const receivedAt = m.receivedDateTime as string;
+      const daysDiff = Math.floor((Date.now() - new Date(receivedAt).getTime()) / (1000 * 60 * 60 * 24));
+      return {
+        id: m.id, message_id: m.id,
+        subject: m.subject || '(no subject)',
+        from_name: from?.emailAddress?.name || from?.emailAddress?.address || '',
+        from_email: from?.emailAddress?.address || '',
+        preview: ((m.bodyPreview as string) || '').slice(0, 160),
+        body_html: '',
+        received_at: receivedAt,
+        is_read: m.isRead as boolean,
+        folder: 'focused',
+        has_attachments: m.hasAttachments as boolean,
+        outlook_url: `https://outlook.office.com/mail/inbox/id/${encodeURIComponent(m.id as string)}`,
+        needs_reply: !(m.isRead as boolean),
+        days_overdue: Math.max(0, daysDiff - 2),
+        synced_at: now,
+      };
+    });
 }
 
 async function fetchCalendar(token: string) {
   const now = new Date();
   const end = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const res = await fetch(
-    `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${now.toISOString()}&endDateTime=${end.toISOString()}&$select=id,subject,start,end,location,isOnlineMeeting,onlineMeetingUrl,attendees,organizer,webLink&$orderby=start/dateTime&$top=20`,
+    `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${now.toISOString()}&endDateTime=${end.toISOString()}&$select=id,subject,start,end,location,isOnlineMeeting,onlineMeetingUrl,organizer,webLink&$orderby=start/dateTime&$top=20`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  const data = await res.json();
+  const data = await res.json() as { value?: Record<string, unknown>[] };
   const synced = new Date().toISOString();
-  return (data.value ?? []).map((e: Record<string, unknown>) => {
+  return ((data.value ?? []) as Record<string, unknown>[]).map((e) => {
     const start = e.start as { dateTime: string };
     const end = e.end as { dateTime: string };
     const loc = e.location as { displayName?: string };
     const organizer = e.organizer as { emailAddress?: { name?: string } };
-    const attendees = e.attendees as unknown[];
-    const isAllDay = start?.dateTime?.endsWith('T00:00:00.0000000') &&
-                     end?.dateTime?.endsWith('T00:00:00.0000000');
     return {
-      id: e.id,
-      event_id: e.id,
+      id: e.id, event_id: e.id,
       subject: e.subject || '(no title)',
       location: loc?.displayName || '',
       start_time: start?.dateTime ? start.dateTime + 'Z' : '',
       end_time: end?.dateTime ? end.dateTime + 'Z' : '',
-      is_all_day: isAllDay,
+      is_all_day: start?.dateTime?.endsWith('T00:00:00.0000000') && end?.dateTime?.endsWith('T00:00:00.0000000'),
       organizer: organizer?.emailAddress?.name || '',
       is_online: e.isOnlineMeeting as boolean,
       join_url: (e.onlineMeetingUrl as string) || (e.webLink as string) || '',
       outlook_url: (e.webLink as string) || '',
-      attendee_count: attendees?.length ?? 0,
       synced_at: synced,
     };
   });
 }
 
-async function fetchTeamsMessages(token: string) {
-  // Get Teams chats (direct messages and group chats)
-  try {
-    const res = await fetch(
-      `https://graph.microsoft.com/v1.0/me/chats?$select=id,topic,chatType,lastUpdatedDateTime&$top=20&$orderby=lastUpdatedDateTime desc`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const data = await res.json();
-    const chats = data.value ?? [];
-    const synced = new Date().toISOString();
-
-    // Get last message for each chat (parallel, limit to 10)
-    const chatItems = await Promise.allSettled(
-      chats.slice(0, 10).map(async (chat: Record<string, unknown>) => {
-        const msgRes = await fetch(
-          `https://graph.microsoft.com/v1.0/me/chats/${chat.id}/messages?$top=1&$select=id,from,body,createdDateTime`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const msgData = await msgRes.json();
-        const lastMsg = msgData.value?.[0];
-        const from = lastMsg?.from?.user?.displayName || lastMsg?.from?.application?.displayName || '';
-        const bodyContent = lastMsg?.body?.content?.replace(/<[^>]+>/g, '').slice(0, 120) || '';
-        return {
-          id: chat.id,
-          chat_id: chat.id,
-          topic: (chat.topic as string) || from || 'Chat',
-          chat_type: chat.chatType as string,
-          last_message_preview: bodyContent,
-          last_sender: from,
-          last_activity: (chat.lastUpdatedDateTime as string) || synced,
-          synced_at: synced,
-        };
-      })
-    );
-
-    return chatItems
-      .filter((r) => r.status === 'fulfilled')
-      .map((r) => (r as PromiseFulfilledResult<unknown>).value);
-  } catch {
-    return [];
-  }
-}
+// ─── Asana direct ─────────────────────────────────────────────────────────────
 
 async function fetchAsanaTasks() {
   const res = await fetch(
-    `https://app.asana.com/api/1.0/tasks?project=1211840949719691&opt_fields=gid,name,due_on,completed,permalink_url,assignee,notes,assignee_status&limit=100`,
+    `https://app.asana.com/api/1.0/tasks?project=1211840949719691&opt_fields=gid,name,due_on,completed,permalink_url,assignee,notes&limit=100`,
     { headers: { Authorization: `Bearer ${ASANA_PAT}` } }
   );
-  const data = await res.json();
+  const data = await res.json() as { data?: Record<string, unknown>[] };
   const today = new Date();
   const ARI_GID = '1206594996279383';
   const now = new Date().toISOString();
-
-  return (data.data ?? [])
-    .filter((t: Record<string, unknown>) => {
+  return ((data.data ?? []) as Record<string, unknown>[])
+    .filter((t) => {
       if (t.completed) return false;
       const assignee = t.assignee as { gid?: string } | null;
       return !assignee || assignee.gid === ARI_GID;
     })
-    .map((t: Record<string, unknown>) => {
+    .map((t) => {
       const dueOn = t.due_on as string | null;
       let daysOverdue = 0;
       if (dueOn) {
@@ -162,13 +160,10 @@ async function fetchAsanaTasks() {
         daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
       }
       return {
-        id: t.gid,
-        task_gid: t.gid,
-        name: t.name,
+        id: t.gid, task_gid: t.gid, name: t.name,
         notes: (t.notes as string) || '',
         due_on: dueOn || '',
-        completed: false,
-        assignee: ARI_GID,
+        completed: false, assignee: ARI_GID,
         project_name: "Ari's Plan",
         permalink_url: t.permalink_url,
         priority: 'normal',
@@ -178,35 +173,138 @@ async function fetchAsanaTasks() {
     });
 }
 
-export async function GET() {
-  try {
-    const [tokenResult, asanaResult] = await Promise.allSettled([
-      getM365Token(),
-      fetchAsanaTasks(),
-    ]);
+// ─── Cortex: Teams chats ──────────────────────────────────────────────────────
 
-    const token = tokenResult.status === 'fulfilled' ? tokenResult.value : null;
+async function fetchTeamsChats(sessionId: string) {
+  const result = await cortexCall(sessionId, 'teams1', 'm365__list_chats', { limit: 20 });
+  const chats: Record<string, unknown>[] = result.chats ?? [];
+  const now = new Date().toISOString();
 
-    const [emailsResult, calendarResult, teamsResult] = await Promise.allSettled([
-      token ? fetchEmails(token) : Promise.resolve([]),
-      token ? fetchCalendar(token) : Promise.resolve([]),
-      token ? fetchTeamsMessages(token) : Promise.resolve([]),
-    ]);
+  // Get recent messages for top 8 chats in parallel
+  const withMessages = await Promise.allSettled(
+    chats.slice(0, 8).map(async (chat) => {
+      const msgsResult = await cortexCall(sessionId, `msg_${chat.id}`, 'm365__list_chat_messages', {
+        chat_id: chat.id as string,
+        limit: 3,
+      });
+      const messages: Record<string, unknown>[] = msgsResult.messages ?? [];
+      const lastMsg = messages[0];
+      const from = lastMsg ? ((lastMsg.from as Record<string, unknown>)?.user as Record<string, unknown>)?.displayName as string || '' : '';
+      const body = lastMsg ? ((lastMsg.body as Record<string, unknown>)?.content as string || '').replace(/<[^>]+>/g, '').trim().slice(0, 120) : '';
+      return {
+        id: chat.id, chat_id: chat.id,
+        topic: (chat.topic as string) || from || 'Teams Chat',
+        chat_type: chat.chatType as string,
+        last_message_preview: body,
+        last_sender: from,
+        last_message_from: from,
+        last_activity: (chat.lastUpdatedDateTime as string) || now,
+        members: [],
+        synced_at: now,
+      };
+    })
+  );
 
-    return NextResponse.json({
-      emails: emailsResult.status === 'fulfilled' ? emailsResult.value : [],
-      calendar: calendarResult.status === 'fulfilled' ? calendarResult.value : [],
-      tasks: asanaResult.status === 'fulfilled' ? asanaResult.value : [],
-      chats: teamsResult.status === 'fulfilled' ? teamsResult.value : [],
-      pipeline: [],
-      fetchedAt: new Date().toISOString(),
-      source: 'live',
-      errors: {
-        m365: token ? null : (tokenResult.status === 'rejected' ? String(tokenResult.reason) : null),
-        asana: asanaResult.status === 'rejected' ? String(asanaResult.reason) : null,
-      }
+  return withMessages
+    .filter((r) => r.status === 'fulfilled')
+    .map((r) => (r as PromiseFulfilledResult<unknown>).value)
+    .filter((c) => {
+      const chat = c as Record<string, unknown>;
+      return chat.last_message_preview || chat.topic;
     });
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+}
+
+// ─── Cortex: Slack ────────────────────────────────────────────────────────────
+
+async function fetchSlackMessages(sessionId: string) {
+  // Get recent messages from key channels
+  const KEY_CHANNELS = ['general', 'slt', 'leadership', 'executive', 'ai'];
+  const result = await cortexCall(sessionId, 'slack1', 'slack__list_channels', { limit: 30 });
+  const channels: Record<string, unknown>[] = result.channels ?? [];
+
+  // Prioritize key channels, then take most active
+  const prioritized = [
+    ...channels.filter((c) => KEY_CHANNELS.some((k) => (c.name as string || '').toLowerCase().includes(k))),
+    ...channels.filter((c) => !KEY_CHANNELS.some((k) => (c.name as string || '').toLowerCase().includes(k))),
+  ].slice(0, 5);
+
+  const messages = await Promise.allSettled(
+    prioritized.map(async (ch) => {
+      const msgs = await cortexCall(sessionId, `slack_${ch.id}`, 'slack__get_channel_history', {
+        channel_id: ch.id as string,
+        limit: 3,
+      });
+      return { channel: ch.name, messages: (msgs.messages ?? []) as Record<string, unknown>[] };
+    })
+  );
+
+  const now = new Date().toISOString();
+  const items: Record<string, unknown>[] = [];
+  for (const r of messages) {
+    if (r.status !== 'fulfilled') continue;
+    const { channel, messages: msgs } = r.value;
+    for (const m of msgs.slice(0, 2)) {
+      if (!m.text && !m.attachments) continue;
+      items.push({
+        id: m.ts as string,
+        message_ts: m.ts as string,
+        author_name: (m.username as string) || (m.user as string) || 'Unknown',
+        author_id: m.user as string || null,
+        text: (m.text as string) || '',
+        timestamp: new Date((parseFloat(m.ts as string) * 1000)).toISOString(),
+        channel_name: channel,
+        reactions: [],
+        thread_reply_count: (m.reply_count as number) || 0,
+        has_files: !!(m.files as unknown[])?.length,
+        permalink: null,
+        synced_at: now,
+      });
+    }
   }
+
+  return items.sort((a, b) =>
+    new Date(b.timestamp as string).getTime() - new Date(a.timestamp as string).getTime()
+  ).slice(0, 10);
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
+
+export async function GET() {
+  const errors: Record<string, string | null> = {};
+
+  // Initialize Cortex session
+  let sessionId = '';
+  try {
+    sessionId = await cortexInit();
+  } catch (e) {
+    errors.cortex = String(e);
+  }
+
+  // Run all fetches in parallel
+  const [tokenResult, asanaResult, teamsResult, slackResult] = await Promise.allSettled([
+    getM365Token(),
+    fetchAsanaTasks(),
+    sessionId ? fetchTeamsChats(sessionId) : Promise.resolve([]),
+    sessionId ? fetchSlackMessages(sessionId) : Promise.resolve([]),
+  ]);
+
+  const token = tokenResult.status === 'fulfilled' ? tokenResult.value : null;
+  if (tokenResult.status === 'rejected') errors.m365_token = String(tokenResult.reason);
+
+  const [emailsResult, calendarResult] = await Promise.allSettled([
+    token ? fetchEmails(token) : Promise.resolve([]),
+    token ? fetchCalendar(token) : Promise.resolve([]),
+  ]);
+
+  return NextResponse.json({
+    emails: emailsResult.status === 'fulfilled' ? emailsResult.value : [],
+    calendar: calendarResult.status === 'fulfilled' ? calendarResult.value : [],
+    tasks: asanaResult.status === 'fulfilled' ? asanaResult.value : [],
+    chats: teamsResult.status === 'fulfilled' ? teamsResult.value : [],
+    slack: slackResult.status === 'fulfilled' ? slackResult.value : [],
+    pipeline: [],
+    fetchedAt: new Date().toISOString(),
+    source: 'live',
+    errors,
+  });
 }
