@@ -15,6 +15,7 @@ import {
 } from "chart.js";
 import { Bar, Line, Doughnut, Pie } from "react-chartjs-2";
 import { usePriorityScore } from "@/hooks/usePriorityScore";
+import { useCalendar } from "@/hooks/useCalendar";
 
 ChartJS.register(
   CategoryScale,
@@ -45,6 +46,7 @@ const gridColor = "rgba(255,255,255,0.06)";
 
 export function TrendsView() {
   const { items } = usePriorityScore();
+  const { events } = useCalendar();
   const counts = { 
     email: items.filter(i => i.source === 'email').length,
     asana: items.filter(i => i.source === 'asana').length,
@@ -59,6 +61,27 @@ export function TrendsView() {
     "50-69": items.filter(i => ((i as any).displayScore ?? 0) >= 50 && ((i as any).displayScore ?? 0) < 70).length,
     "Below 50": items.filter(i => ((i as any).displayScore ?? 0) < 50).length,
   };
+
+  // Live: compute meeting vs free time for today from real calendar
+  const todayMeetingHrs = (() => {
+    const pstOffset = -8 * 60;
+    const now = new Date();
+    const todayPST = new Date(now.getTime() + (now.getTimezoneOffset() + pstOffset) * 60000);
+    const todayStr = todayPST.toISOString().slice(0, 10);
+    let totalMins = 0;
+    for (const ev of events) {
+      const start = new Date(ev.start_time);
+      const end = new Date(ev.end_time);
+      const startPST = new Date(start.getTime() + (start.getTimezoneOffset() + pstOffset) * 60000);
+      if (startPST.toISOString().slice(0, 10) !== todayStr) continue;
+      totalMins += Math.max(0, (end.getTime() - start.getTime()) / 60000);
+    }
+    return Math.round(totalMins / 60 * 10) / 10;
+  })();
+  const workdayHrs = 10;
+  const freeHrs = Math.max(0, Math.round((workdayHrs - todayMeetingHrs) * 10) / 10);
+  const meetingLabel = `Meetings (${todayMeetingHrs}h)`;
+  const freeLabel = `Free Time (${freeHrs}h)`;
 
   return (
     <div className="space-y-5">
@@ -184,13 +207,13 @@ export function TrendsView() {
 
         {/* Chart 3: Meeting vs Free Time */}
         <section className="glass-card anim-card p-6" style={{ animationDelay: "160ms" }}>
-          <h2 className="text-sm font-semibold text-text-heading mb-4">Meeting vs. Free Time Today</h2>
+          <h2 className="text-sm font-semibold text-text-heading mb-4">Meeting vs. Free Time — Today <span className="text-xs font-normal text-text-muted">(live)</span></h2>
           <div className="h-[250px] flex items-center justify-center">
             <Doughnut
               data={{
-                labels: ["Meetings (6.5 hrs)", "Free Time (5.5 hrs)"],
+                labels: [meetingLabel, freeLabel],
                 datasets: [{
-                  data: [6.5, 5.5],
+                  data: [todayMeetingHrs || 0.1, freeHrs || 0.1],
                   backgroundColor: ["rgba(212,164,76,0.8)", "rgba(78,205,196,0.6)"],
                   borderColor: ["#D4A44C", "#4ECDC4"],
                   borderWidth: 2,
@@ -312,23 +335,49 @@ export function TrendsView() {
         </div>
       </section>
 
-      {/* Week-over-Week Insights */}
-      <section className="glass-card anim-card p-6" style={{ animationDelay: "320ms" }}>
-        <h2 className="text-sm font-semibold text-text-heading mb-4">Week-over-Week Insights</h2>
-        <ul className="space-y-2.5">
-          {INSIGHTS.map((insight, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm text-text-body">
-              <span className={cn(
-                "w-2 h-2 rounded-full shrink-0 mt-1.5",
-                insight.color === "red" && "bg-accent-red",
-                insight.color === "green" && "bg-accent-green",
-                insight.color === "amber" && "bg-accent-amber"
-              )} />
-              {insight.text}
-            </li>
-          ))}
-        </ul>
-      </section>
+      {/* Live Insights */}
+      <LiveInsights items={items} meetingHrs={todayMeetingHrs} />
     </div>
+  );
+}
+
+function LiveInsights({ items, meetingHrs }: { items: { source: string; daysOverdue?: number; urgent?: boolean; financial?: boolean; legal?: boolean; displayScore?: number }[]; meetingHrs: number }) {
+  const overdueCount = items.filter(i => (i.daysOverdue ?? 0) > 0).length;
+  const criticalCount = items.filter(i => ((i as any).displayScore ?? 0) >= 80).length;
+  const financialCount = items.filter(i => i.financial).length;
+  const legalCount = items.filter(i => i.legal).length;
+  const totalItems = items.length;
+
+  const insights: { color: string; text: string }[] = [];
+
+  if (criticalCount > 0) insights.push({ color: "red", text: `${criticalCount} item${criticalCount > 1 ? 's' : ''} at critical priority (score ≥80) — needs attention today` });
+  if (overdueCount > 0) insights.push({ color: "amber", text: `${overdueCount} overdue item${overdueCount > 1 ? 's' : ''} — review and either complete or reschedule` });
+  if (legalCount > 0) insights.push({ color: "red", text: `${legalCount} legal-flagged item${legalCount > 1 ? 's' : ''} in your queue` });
+  if (financialCount > 0) insights.push({ color: "amber", text: `${financialCount} finance-related item${financialCount > 1 ? 's' : ''} pending action` });
+  if (meetingHrs > 6) insights.push({ color: "amber", text: `Heavy meeting day — ${meetingHrs}h of meetings scheduled. Block time for deep work tomorrow.` });
+  else if (meetingHrs > 0) insights.push({ color: "green", text: `${meetingHrs}h of meetings today — reasonable load with space for focus work` });
+  if (totalItems > 0 && criticalCount === 0 && overdueCount === 0) insights.push({ color: "green", text: "No critical or overdue items — you're on top of things" });
+
+  if (insights.length === 0) {
+    insights.push({ color: "green", text: "Queue is clear — good time to plan ahead or tackle a strategic project" });
+  }
+
+  return (
+    <section className="glass-card anim-card p-6" style={{ animationDelay: "320ms" }}>
+      <h2 className="text-sm font-semibold text-text-heading mb-4">Live Insights <span className="text-xs font-normal text-text-muted">(from your actual queue)</span></h2>
+      <ul className="space-y-2.5">
+        {insights.map((insight, i) => (
+          <li key={i} className="flex items-start gap-2.5 text-sm text-text-body">
+            <span className={cn(
+              "w-2 h-2 rounded-full shrink-0 mt-1.5",
+              insight.color === "red" ? "bg-accent-red" :
+              insight.color === "green" ? "bg-accent-teal" :
+              "bg-accent-amber"
+            )} />
+            {insight.text}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

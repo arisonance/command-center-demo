@@ -47,7 +47,7 @@ function HomeContent() {
       <main className="px-6 pb-8">
         {activeTab === "command-center" && <CommandCenterView />}
         {activeTab === "sales" && <SalesView />}
-        {activeTab === "people" && <PeopleView people={people} />}
+        {activeTab === "people" && <PeopleView people={people} loading={loading} />}
         {activeTab === "timeline" && <TimelineView />}
         {activeTab === "trends" && <TrendsView />}
       </main>
