@@ -1,0 +1,359 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import { X, Scissors, Send, Upload, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useChats } from "@/hooks/useChats";
+
+interface Destination {
+  type: "teams_chat" | "email";
+  id?: string;
+  name: string;
+  address?: string;
+}
+
+interface Props {
+  reportName: string;
+  embedUrl: string;
+  onClose: () => void;
+}
+
+const KNOWN_CONTACTS = [
+  { name: "Jeana Ceglia", address: "jeanac@sonance.com" },
+  { name: "Derick Dahl", address: "derick.dahl@sonance.com" },
+  { name: "Rob Roland", address: "rob.roland@sonance.com" },
+  { name: "Jorge Notni", address: "jorge.notni@sonance.com" },
+  { name: "Pat McGaughan", address: "pat.mcgaughan@sonance.com" },
+  { name: "Mike Sonntag", address: "mike.sonntag@sonance.com" },
+  { name: "Jason Sloan", address: "jason.sloan@sonance.com" },
+];
+
+export function PowerBIFullscreen({ reportName, embedUrl, onClose }: Props) {
+  const { chats } = useChats();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [clipMode, setClipMode] = useState(false);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [destination, setDestination] = useState<Destination | null>(null);
+  const [destSearch, setDestSearch] = useState("");
+  const [showDestPicker, setShowDestPicker] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const [capturing, setCapturing] = useState(false);
+
+  // Close on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (clipMode) setClipMode(false);
+        else onClose();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clipMode, onClose]);
+
+  // Attempt html2canvas capture of the iframe container
+  async function handleCapture() {
+    setCapturing(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const el = iframeRef.current?.parentElement;
+      if (!el) throw new Error("No element");
+      const canvas = await html2canvas(el, {
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#111",
+        scale: window.devicePixelRatio || 1,
+      });
+      const dataUrl = canvas.toDataURL("image/png");
+      setImageBase64(dataUrl);
+    } catch {
+      // Cross-origin iframe blocks canvas — prompt manual upload
+      setImageBase64(null);
+    } finally {
+      setCapturing(false);
+    }
+    setClipMode(true);
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setImageBase64(ev.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSend() {
+    if (!destination) return;
+    setSending(true);
+    setSendError("");
+    try {
+      const res = await fetch("/api/actions/send-clip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note, imageBase64, destination }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+      setSent(true);
+      setTimeout(() => {
+        setSent(false);
+        setClipMode(false);
+        setImageBase64(null);
+        setNote("");
+        setDestination(null);
+      }, 2500);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  // Build destination list: Teams chats + known contacts (email)
+  const destinations: Destination[] = [
+    ...chats
+      .filter(c => c.topic)
+      .map(c => ({ type: "teams_chat" as const, id: c.id, name: c.topic || "Teams Chat" })),
+    ...KNOWN_CONTACTS.map(c => ({ type: "email" as const, name: c.name, address: c.address })),
+  ];
+
+  const filtered = destinations.filter(d =>
+    d.name.toLowerCase().includes(destSearch.toLowerCase())
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#0a0a0a]">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#111] border-b border-white/10 shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-white">{reportName}</span>
+          <span className="text-[10px] text-white/40 uppercase tracking-wider">Power BI · Live</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCapture}
+            disabled={capturing}
+            className={cn(
+              "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer",
+              clipMode
+                ? "bg-accent-amber text-[#0d0d0d]"
+                : "bg-white/10 text-white hover:bg-white/20"
+            )}
+          >
+            <Scissors className="w-3.5 h-3.5" />
+            {capturing ? "Capturing…" : "Clip this view"}
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            title="Close (Esc)"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Main area */}
+      <div className="flex flex-1 min-h-0">
+        {/* Report iframe */}
+        <div className={cn("flex-1 min-w-0 transition-all duration-300", clipMode ? "w-[60%]" : "w-full")}>
+          <iframe
+            ref={iframeRef}
+            src={embedUrl}
+            className="w-full h-full border-0"
+            allowFullScreen
+            title={reportName}
+          />
+        </div>
+
+        {/* Clip panel (slides in from right) */}
+        {clipMode && (
+          <div className="w-[40%] max-w-md bg-[#111] border-l border-white/10 flex flex-col overflow-y-auto">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Scissors className="w-4 h-4 text-accent-amber" />
+                Clip &amp; Share
+              </h3>
+              <button
+                onClick={() => { setClipMode(false); setImageBase64(null); }}
+                className="text-white/40 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 flex-1">
+              {/* Screenshot area */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/40 mb-2 block">
+                  Screenshot
+                </label>
+                {imageBase64 ? (
+                  <div className="relative group">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={imageBase64}
+                      alt="Clip preview"
+                      className="w-full rounded-lg border border-white/10 object-cover"
+                      style={{ maxHeight: 200 }}
+                    />
+                    <button
+                      onClick={() => setImageBase64(null)}
+                      className="absolute top-1.5 right-1.5 bg-black/70 text-white/70 hover:text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-white/10 rounded-lg p-6 text-center cursor-pointer hover:border-accent-amber/40 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 text-white/30 mx-auto mb-2" />
+                    <p className="text-xs text-white/50">
+                      Auto-capture blocked by browser security.<br />
+                      Take a screenshot (⌘⇧4) then drop or click to upload.
+                    </p>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                {!imageBase64 && (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="mt-2 text-[10px] text-accent-amber/70 hover:text-accent-amber cursor-pointer transition-colors"
+                  >
+                    + Upload screenshot
+                  </button>
+                )}
+              </div>
+
+              {/* Note */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/40 mb-2 block">
+                  Your note
+                </label>
+                <textarea
+                  className="w-full bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/25 resize-none focus:outline-none focus:border-accent-amber/30 leading-relaxed"
+                  placeholder="Add context about what you're seeing…"
+                  rows={4}
+                  value={note}
+                  onChange={e => setNote(e.target.value)}
+                />
+              </div>
+
+              {/* Recipient picker */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/40 mb-2 block">
+                  Send to
+                </label>
+                {destination ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-[#1a1a1a] border border-accent-amber/30 rounded-lg px-3 py-2 text-sm text-white flex items-center gap-2">
+                      <span className={cn(
+                        "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded",
+                        destination.type === "teams_chat" ? "bg-[#5865f2]/20 text-[#5865f2]" : "bg-accent-teal/20 text-accent-teal"
+                      )}>
+                        {destination.type === "teams_chat" ? "Teams" : "Email"}
+                      </span>
+                      {destination.name}
+                    </div>
+                    <button
+                      onClick={() => setDestination(null)}
+                      className="text-white/40 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      className="w-full bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-accent-amber/30"
+                      placeholder="Search chats, people, or type email…"
+                      value={destSearch}
+                      onChange={e => { setDestSearch(e.target.value); setShowDestPicker(true); }}
+                      onFocus={() => setShowDestPicker(true)}
+                    />
+                    {showDestPicker && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg overflow-hidden z-10 max-h-48 overflow-y-auto">
+                        {filtered.length === 0 && destSearch.includes("@") ? (
+                          <button
+                            className="w-full text-left px-3 py-2.5 text-sm text-white hover:bg-white/5 transition-colors cursor-pointer"
+                            onClick={() => {
+                              setDestination({ type: "email", name: destSearch, address: destSearch });
+                              setShowDestPicker(false);
+                              setDestSearch("");
+                            }}
+                          >
+                            <span className="text-[9px] bg-accent-teal/20 text-accent-teal font-bold px-1.5 py-0.5 rounded mr-2 uppercase">Email</span>
+                            Send to {destSearch}
+                          </button>
+                        ) : filtered.slice(0, 12).map((d, i) => (
+                          <button
+                            key={i}
+                            className="w-full text-left px-3 py-2.5 text-sm text-white hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-2"
+                            onClick={() => {
+                              setDestination(d);
+                              setShowDestPicker(false);
+                              setDestSearch("");
+                            }}
+                          >
+                            <span className={cn(
+                              "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0",
+                              d.type === "teams_chat" ? "bg-[#5865f2]/20 text-[#5865f2]" : "bg-accent-teal/20 text-accent-teal"
+                            )}>
+                              {d.type === "teams_chat" ? "Teams" : "Email"}
+                            </span>
+                            <span className="truncate">{d.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Send button */}
+            <div className="p-4 border-t border-white/10">
+              {sendError && (
+                <p className="text-xs text-red-400 mb-2">{sendError}</p>
+              )}
+              {sent ? (
+                <div className="text-sm text-green-400 font-medium text-center py-2">✓ Sent!</div>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!destination || sending || (!note.trim() && !imageBase64)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-accent-amber text-[#0d0d0d] font-semibold text-sm cursor-pointer hover:bg-accent-amber/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {sending ? (
+                    <><span className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> Sending…</>
+                  ) : (
+                    <><Send className="w-4 h-4" /> Send Clip</>
+                  )}
+                </button>
+              )}
+              <p className="text-[10px] text-white/25 text-center mt-2">
+                {destination?.type === "email" ? "Sends via Outlook with image inline" : "Sends as Teams message with link"}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

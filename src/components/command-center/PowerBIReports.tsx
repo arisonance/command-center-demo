@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { usePowerBI } from "@/hooks/usePowerBI";
 import { cn } from "@/lib/utils";
-import { ExternalLink, ChevronDown, ChevronUp, BarChart3 } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, BarChart3, Maximize2 } from "lucide-react";
+import { PowerBIFullscreen } from "./PowerBIFullscreen";
 
 const STORAGE_KEY = "pbi_embed_urls";
 
@@ -27,6 +28,7 @@ export function PowerBIReports() {
   const [embedUrls, setEmbedUrls] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState("");
+  const [fullscreenReport, setFullscreenReport] = useState<{ name: string; url: string } | null>(null);
 
   // Load saved embed URLs from localStorage on mount
   useEffect(() => {
@@ -68,6 +70,14 @@ export function PowerBIReports() {
     : [];
 
   return (
+    <>
+    {fullscreenReport && (
+      <PowerBIFullscreen
+        reportName={fullscreenReport.name}
+        embedUrl={fullscreenReport.url}
+        onClose={() => setFullscreenReport(null)}
+      />
+    )}
     <section className="glass-card anim-card">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -137,6 +147,15 @@ export function PowerBIReports() {
                     >
                       {embedUrl ? "embedded ✓" : "+ embed"}
                     </button>
+                    {embedUrl && (
+                      <button
+                        onClick={() => setFullscreenReport({ name: report.report_name, url: embedUrl })}
+                        className="p-1.5 rounded hover:bg-white/5 transition-colors cursor-pointer"
+                        title="Fullscreen + Clip"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5 text-accent-amber" />
+                      </button>
+                    )}
                     <a
                       href={pbiUrl}
                       target="_blank"
@@ -244,5 +263,6 @@ export function PowerBIReports() {
         </div>
       )}
     </section>
+    </>
   );
 }
