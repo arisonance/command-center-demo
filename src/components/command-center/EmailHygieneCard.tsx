@@ -34,6 +34,8 @@ function HygieneRow({
   const [unsubState, setUnsubState] = useState<ActionState>("idle");
   const [fading, setFading] = useState(false);
 
+  const [unsubLabel, setUnsubLabel] = useState("✓");
+
   async function act(
     action: "block" | "phishing" | "unsub",
     setState: (s: ActionState) => void
@@ -57,6 +59,9 @@ function HygieneRow({
       });
       const data = await res.json();
       if (data.ok) {
+        if (action === "unsub") {
+          setUnsubLabel(data.method === "none" ? "✓ Deleted" : "✓ Unsubscribed");
+        }
         setState("done");
         setFading(true);
         setTimeout(() => onRemove(email.id), 500);
@@ -107,6 +112,7 @@ function HygieneRow({
         />
         <ActionBtn
           label="✉️ Unsub"
+          doneLabel={unsubLabel}
           state={unsubState}
           className="hover:bg-white/5 hover:text-text-body"
           onClick={() => act("unsub", setUnsubState)}
@@ -118,11 +124,13 @@ function HygieneRow({
 
 function ActionBtn({
   label,
+  doneLabel,
   state,
   className,
   onClick,
 }: {
   label: string;
+  doneLabel?: string;
   state: ActionState;
   className?: string;
   onClick: () => void;
@@ -132,7 +140,7 @@ function ActionBtn({
       <span className="text-[10px] text-text-muted animate-spin inline-block w-4 h-4 border border-text-muted border-t-transparent rounded-full" />
     );
   if (state === "done")
-    return <span className="text-[10px] text-accent-green">✓</span>;
+    return <span className="text-[10px] text-accent-green">{doneLabel || "✓"}</span>;
   if (state === "error")
     return <span className="text-[10px] text-red-400">err</span>;
   return (
