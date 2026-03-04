@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateEmbedToken } from "@/lib/powerbi/client";
+import { getCortexToken, cortexInit, cortexCall } from "@/lib/cortex/client";
 
 export async function POST(request: NextRequest) {
+  const cortexToken = getCortexToken(request);
+  if (!cortexToken) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   try {
     const { reportId, datasetIds, workspaceId } = await request.json();
 
@@ -12,11 +17,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await generateEmbedToken(
-      reportId,
-      datasetIds || [],
-      workspaceId
-    );
+    const sessionId = await cortexInit(cortexToken);
+
+    // Generate embed token via Cortex Power BI MCP
+    const result = await cortexCall(cortexToken, sessionId, "powerbi__generate_embed_token", {
+      report_id: reportId,
+      dataset_ids: datasetIds || [],
+      workspace_id: workspaceId,
+    });
 
     return NextResponse.json(result);
   } catch (err) {
