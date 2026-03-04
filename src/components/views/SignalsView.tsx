@@ -28,21 +28,37 @@ function TeamsChatsCard() {
         <div className="text-sm text-text-muted">No Teams chats found.</div>
       ) : (
         <div className="space-y-0 divide-y divide-[var(--bg-card-border)]">
-          {chats.map((chat, i) => {
+          {chats
+            .filter(chat => {
+              // Filter out self-chats (topic is own name + sender is self)
+              if (chat.topic === 'Ari Supran' && chat.last_message_from === 'Ari Supran') return false;
+              // Filter out ghost chats (no topic, no preview, no sender)
+              if (chat.topic === 'Teams Chat' && !chat.last_message_preview && !chat.last_message_from) return false;
+              return true;
+            })
+            .map((chat, i) => {
             const topic = chat.topic || 'Teams Chat';
             const preview = chat.last_message_preview || '';
+            const from = chat.last_message_from || '';
+            const isGroup = chat.chat_type === 'group' || chat.chat_type === 'meeting';
             return (
               <div key={chat.id || i} className="py-3 flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-[#5865f2]/20 flex items-center justify-center shrink-0 text-[10px] font-bold text-[#5865f2] mt-0.5">
+                <div className="w-8 h-8 rounded-full bg-[#5865f2]/20 flex items-center justify-center shrink-0 text-[11px] font-bold text-[#5865f2] mt-0.5">
                   {topic.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-text-heading truncate">{topic}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-text-heading truncate">{topic}</span>
+                    {isGroup && <span className="text-[9px] bg-white/5 text-text-muted px-1.5 py-0.5 rounded shrink-0">group</span>}
+                  </div>
+                  {from && <div className="text-[11px] text-text-muted mt-0.5">{from}</div>}
                   {preview && (
-                    <div className="text-xs text-text-muted truncate mt-0.5">{preview}</div>
+                    <div className="text-xs text-text-muted/80 mt-1 line-clamp-2 leading-snug">{preview}</div>
+                  )}
+                  {!preview && !from && (
+                    <div className="text-xs text-text-muted/40 mt-0.5 italic">No recent messages</div>
                   )}
                 </div>
-                <span className="text-[9px] uppercase tracking-wider bg-[#5865f2]/10 text-[#5865f2] px-1.5 py-0.5 rounded shrink-0">Teams</span>
               </div>
             );
           })}

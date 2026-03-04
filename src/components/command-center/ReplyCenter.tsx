@@ -88,7 +88,12 @@ export function ReplyCenter() {
     }
 
     // ── Teams Chats ───────────────────────────────────────────────────
-    for (const chat of chats) {
+    const filteredChats = chats.filter(chat => {
+      if (chat.topic === 'Ari Supran' && chat.last_message_from === 'Ari Supran') return false;
+      if (chat.topic === 'Teams Chat' && !chat.last_message_preview) return false;
+      return true;
+    });
+    for (const chat of filteredChats) {
       const title = chat.topic || chat.last_message_preview || 'Teams message';
       const preview = chat.last_message_preview || '';
       all.push({
