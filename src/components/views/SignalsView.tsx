@@ -2,6 +2,7 @@
 import { SlackCard } from "@/components/command-center/SlackCard";
 import { AIFeedCard } from "@/components/command-center/AIFeedCard";
 import { JeanaSection } from "@/components/command-center/JeanaSection";
+import { EmailHygieneCard } from "@/components/command-center/EmailHygieneCard";
 import { useTasks } from "@/hooks/useTasks";
 import { useChats } from "@/hooks/useChats";
 import { transformJeanaItems } from "@/lib/transformers";
@@ -78,6 +79,7 @@ export function SignalsView() {
         <TeamsChatsCard />
         <SlackCard />
       </div>
+      <EmailHygieneCard />
       <AIFeedCard />
       <JeanaSection items={jeanaItems} />
     </div>
