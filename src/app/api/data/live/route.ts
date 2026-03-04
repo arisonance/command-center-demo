@@ -322,6 +322,93 @@ async function fetchPowerBI(sessionId: string) {
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
+async function fetchSalesforceKPIs(sessionId: string) {
+  const now = new Date().toISOString();
+  try {
+    const [pipelineResult, wonResult, lostResult] = await Promise.allSettled([
+      cortexCall(sessionId, 'sf_pipe', 'salesforce__run_soql_query', {
+        query: "SELECT StageName, COUNT(Id) dealCount, SUM(Amount) pipelineTotal FROM Opportunity WHERE IsClosed = false GROUP BY StageName"
+      }),
+      cortexCall(sessionId, 'sf_won', 'salesforce__run_soql_query', {
+        query: "SELECT COUNT(Id) wonCount, SUM(Amount) wonTotal FROM Opportunity WHERE IsWon = true AND CloseDate >= 2026-01-01"
+      }),
+      cortexCall(sessionId, 'sf_lost', 'salesforce__run_soql_query', {
+        query: "SELECT COUNT(Id) lostCount FROM Opportunity WHERE IsWon = false AND IsClosed = true AND CloseDate >= 2026-01-01"
+      }),
+    ]);
+
+    const pipelineRecords = pipelineResult.status === 'fulfilled' ? (pipelineResult.value?.records ?? []) as Record<string, unknown>[] : [];
+    const wonRecord = wonResult.status === 'fulfilled' ? ((wonResult.value?.records ?? [])[0] ?? {}) as Record<string, unknown> : {};
+    const lostRecord = lostResult.status === 'fulfilled' ? ((lostResult.value?.records ?? [])[0] ?? {}) as Record<string, unknown> : {};
+
+    const pipelineTotal = pipelineRecords.reduce((s, r) => s + (Number(r.pipelineTotal) || 0), 0);
+    const openDeals = pipelineRecords.reduce((s, r) => s + (Number(r.dealCount) || 0), 0);
+    const wonTotal = Number(wonRecord.wonTotal) || 0;
+    const wonCount = Number(wonRecord.wonCount) || 0;
+    const lostCount = Number(lostRecord.lostCount) || 0;
+    const winRate = (wonCount + lostCount) > 0 ? Math.round((wonCount / (wonCount + lostCount)) * 100) : 0;
+
+    // Top stage by value
+    const topStage = pipelineRecords.length > 0
+      ? pipelineRecords.reduce((a, b) => (Number(a.pipelineTotal) || 0) > (Number(b.pipelineTotal) || 0) ? a : b)
+      : null;
+
+    return [
+      {
+        id: 'sf-pipeline',
+        kpi_name: 'Open Pipeline',
+        kpi_category: 'revenue',
+        current_value: pipelineTotal,
+        previous_value: null,
+        target_value: null,
+        unit: '$',
+        period: 'current',
+        subtitle: `${openDeals} open deals`,
+        synced_at: now,
+      },
+      {
+        id: 'sf-won-ytd',
+        kpi_name: 'Won YTD',
+        kpi_category: 'revenue',
+        current_value: wonTotal,
+        previous_value: null,
+        target_value: null,
+        unit: '$',
+        period: '2026 YTD',
+        subtitle: `${wonCount} deals closed`,
+        synced_at: now,
+      },
+      {
+        id: 'sf-win-rate',
+        kpi_name: 'Win Rate',
+        kpi_category: 'revenue',
+        current_value: winRate,
+        previous_value: null,
+        target_value: null,
+        unit: '%',
+        period: '2026 YTD',
+        subtitle: `${wonCount}W / ${lostCount}L`,
+        synced_at: now,
+      },
+      {
+        id: 'sf-top-stage',
+        kpi_name: 'Largest Stage',
+        kpi_category: 'revenue',
+        current_value: topStage ? Number(topStage.pipelineTotal) || 0 : 0,
+        previous_value: null,
+        target_value: null,
+        unit: '$',
+        period: 'current',
+        subtitle: topStage ? String(topStage.StageName) : '',
+        synced_at: now,
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+
 async function fetchSalesforce(sessionId: string) {
   try {
     const result = await cortexCall(sessionId, 'sf_opps', 'salesforce__run_soql_query', {
@@ -360,13 +447,14 @@ export async function GET() {
   }
 
   // Run all fetches in parallel
-  const [tokenResult, asanaResult, teamsResult, slackResult, powerbiResult, sfResult] = await Promise.allSettled([
+  const [tokenResult, asanaResult, teamsResult, slackResult, powerbiResult, sfResult, sfKpiResult] = await Promise.allSettled([
     getM365Token(),
     fetchAsanaTasks(),
     sessionId ? fetchTeamsChats(sessionId) : Promise.resolve([]),
     sessionId ? fetchSlackMessages(sessionId) : Promise.resolve([]),
     sessionId ? fetchPowerBI(sessionId) : Promise.resolve({ reports: [], kpis: [] }),
     sessionId ? fetchSalesforce(sessionId) : Promise.resolve([]),
+    sessionId ? fetchSalesforceKPIs(sessionId) : Promise.resolve([]),
   ]);
 
   const token = tokenResult.status === 'fulfilled' ? tokenResult.value : null;
@@ -383,7 +471,7 @@ export async function GET() {
     tasks: asanaResult.status === 'fulfilled' ? asanaResult.value : [],
     chats: teamsResult.status === 'fulfilled' ? teamsResult.value : [],
     slack: slackResult.status === 'fulfilled' ? slackResult.value : [],
-    powerbi: powerbiResult.status === 'fulfilled' ? powerbiResult.value : { reports: [], kpis: [] },
+    powerbi: (() => { const pbi = powerbiResult.status === 'fulfilled' ? powerbiResult.value : { reports: [], kpis: [] }; const sfKpis = sfKpiResult?.status === 'fulfilled' ? sfKpiResult.value : []; return { ...pbi, kpis: sfKpis.length > 0 ? sfKpis : pbi.kpis }; })(),
     pipeline: sfResult.status === 'fulfilled' ? sfResult.value : [],
     fetchedAt: new Date().toISOString(),
     source: 'live',

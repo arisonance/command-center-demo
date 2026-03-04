@@ -69,7 +69,8 @@ export function PowerBIKPIs() {
       <section className="glass-card anim-card">
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 className="w-4 h-4 text-[#0070D2]" />
-          <h2 className="text-sm font-semibold text-text-heading">Power BI KPIs</h2>
+          <h2 className="text-sm font-semibold text-text-heading">Pipeline KPIs</h2>
+        <span className="text-[10px] text-text-muted bg-[#0070D2]/10 text-[#0070D2] px-1.5 py-0.5 rounded">Salesforce live</span>
         </div>
         <div className="text-sm text-text-muted animate-pulse">Loading KPIs...</div>
       </section>
@@ -81,7 +82,8 @@ export function PowerBIKPIs() {
       <section className="glass-card anim-card">
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 className="w-4 h-4 text-[#0070D2]" />
-          <h2 className="text-sm font-semibold text-text-heading">Power BI KPIs</h2>
+          <h2 className="text-sm font-semibold text-text-heading">Pipeline KPIs</h2>
+        <span className="text-[10px] text-text-muted bg-[#0070D2]/10 text-[#0070D2] px-1.5 py-0.5 rounded">Salesforce live</span>
         </div>
         <div className="text-sm text-accent-red">{error}</div>
       </section>
@@ -95,10 +97,11 @@ export function PowerBIKPIs() {
       <section className="glass-card anim-card">
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 className="w-4 h-4 text-[#0070D2]" />
-          <h2 className="text-sm font-semibold text-text-heading">Power BI KPIs</h2>
+          <h2 className="text-sm font-semibold text-text-heading">Pipeline KPIs</h2>
+        <span className="text-[10px] text-text-muted bg-[#0070D2]/10 text-[#0070D2] px-1.5 py-0.5 rounded">Salesforce live</span>
         </div>
         <div className="text-sm text-text-muted">
-          No KPI data yet. Run a sync to pull data from Power BI.
+          Loading pipeline data from Salesforce...
         </div>
       </section>
     );
@@ -108,7 +111,8 @@ export function PowerBIKPIs() {
     <section className="glass-card anim-card">
       <div className="flex items-center gap-2 mb-4">
         <BarChart3 className="w-4 h-4 text-[#0070D2]" />
-        <h2 className="text-sm font-semibold text-text-heading">Power BI KPIs</h2>
+        <h2 className="text-sm font-semibold text-text-heading">Pipeline KPIs</h2>
+        <span className="text-[10px] text-text-muted bg-[#0070D2]/10 text-[#0070D2] px-1.5 py-0.5 rounded">Salesforce live</span>
       </div>
 
       <div className="space-y-5">
@@ -139,6 +143,9 @@ export function PowerBIKPIs() {
                     )}
                   </div>
                   <span className="text-[10px] text-text-muted">{kpi.period}</span>
+                  {(kpi as unknown as { subtitle?: string }).subtitle && (
+                    <span className="text-[10px] text-text-muted block mt-0.5">{(kpi as unknown as { subtitle?: string }).subtitle}</span>
+                  )}
                 </div>
               ))}
             </div>
