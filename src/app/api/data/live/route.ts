@@ -322,6 +322,32 @@ async function fetchPowerBI(sessionId: string) {
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
+async function fetchSalesforce(sessionId: string) {
+  try {
+    const result = await cortexCall(sessionId, 'sf_opps', 'salesforce__run_soql_query', {
+      query: "SELECT Id, Name, Amount, StageName, CloseDate, AccountId, Account.Name, OwnerId, Owner.Name, Probability FROM Opportunity WHERE IsClosed = false ORDER BY Amount DESC NULLS LAST LIMIT 50"
+    });
+    const records: Record<string, unknown>[] = result?.records ?? [];
+    return records.map((r) => ({
+      id: r.Id as string,
+      sf_opportunity_id: r.Id as string,
+      name: r.Name as string,
+      amount: Number(r.Amount ?? 0),
+      stage: r.StageName as string,
+      close_date: r.CloseDate as string,
+      account_name: (r.Account as Record<string, unknown>)?.Name as string || '',
+      owner_name: (r.Owner as Record<string, unknown>)?.Name as string || '',
+      probability: Number(r.Probability ?? 0),
+      is_closed: false,
+      is_won: false,
+      sf_url: `https://sonance.lightning.force.com/lightning/r/Opportunity/${r.Id as string}/view`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+
 export async function GET() {
   const errors: Record<string, string | null> = {};
 
@@ -334,12 +360,13 @@ export async function GET() {
   }
 
   // Run all fetches in parallel
-  const [tokenResult, asanaResult, teamsResult, slackResult, powerbiResult] = await Promise.allSettled([
+  const [tokenResult, asanaResult, teamsResult, slackResult, powerbiResult, sfResult] = await Promise.allSettled([
     getM365Token(),
     fetchAsanaTasks(),
     sessionId ? fetchTeamsChats(sessionId) : Promise.resolve([]),
     sessionId ? fetchSlackMessages(sessionId) : Promise.resolve([]),
     sessionId ? fetchPowerBI(sessionId) : Promise.resolve({ reports: [], kpis: [] }),
+    sessionId ? fetchSalesforce(sessionId) : Promise.resolve([]),
   ]);
 
   const token = tokenResult.status === 'fulfilled' ? tokenResult.value : null;
@@ -357,7 +384,7 @@ export async function GET() {
     chats: teamsResult.status === 'fulfilled' ? teamsResult.value : [],
     slack: slackResult.status === 'fulfilled' ? slackResult.value : [],
     powerbi: powerbiResult.status === 'fulfilled' ? powerbiResult.value : { reports: [], kpis: [] },
-    pipeline: [],
+    pipeline: sfResult.status === 'fulfilled' ? sfResult.value : [],
     fetchedAt: new Date().toISOString(),
     source: 'live',
     errors,
