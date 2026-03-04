@@ -1,210 +1,164 @@
 "use client";
 import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { calcScore, scoreReason, scoreClass, getEnergySlot } from "@/lib/priority";
 import type { PriorityItem } from "@/lib/types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SlackIcon } from "@/components/ui/icons";
 
 function SourceIcon({ source }: { source: PriorityItem["source"] }) {
-  if (source === "email") {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-        <polyline points="22,6 12,13 2,6" />
-      </svg>
-    );
-  }
-  if (source === "teams") {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 00-3-3.87" />
-        <path d="M16 3.13a4 4 0 010 7.75" />
-      </svg>
-    );
-  }
-  if (source === "slack") {
-    return <SlackIcon size={16} />;
-  }
-  if (source === "salesforce") {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </svg>
-    );
-  }
-  // asana
+  if (source === "email") return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22,6 12,13 2,6" />
+    </svg>
+  );
+  if (source === "teams") return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" />
+    </svg>
+  );
+  if (source === "slack") return <SlackIcon size={14} />;
+  if (source === "asana") return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="6" r="4" /><circle cx="5" cy="17" r="4" /><circle cx="19" cy="17" r="4" />
+    </svg>
+  );
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="12" cy="6" r="4.5" />
-      <circle cx="5" cy="17" r="4.5" />
-      <circle cx="19" cy="17" r="4.5" />
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
     </svg>
   );
 }
 
-const SOURCE_TAG_CLASSES: Record<PriorityItem["source"], string> = {
-  email: "tag-email",
-  teams: "tag-teams",
-  asana: "tag-asana",
-  slack: "tag-slack",
-  salesforce: "tag-asana",
-};
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 80 ? "text-red-400 bg-red-400/10 border-red-400/20"
+    : score >= 60 ? "text-amber-400 bg-amber-400/10 border-amber-400/20"
+    : score >= 40 ? "text-teal-400 bg-teal-400/10 border-teal-400/20"
+    : "text-text-muted bg-white/5 border-white/10";
+  return (
+    <span className={cn("text-xs font-bold tabular-nums w-8 text-center rounded border px-1 py-0.5 shrink-0", color)}>
+      {score}
+    </span>
+  );
+}
+
+function SignalPills({ item }: { item: PriorityItem & { displayScore?: number } }) {
+  const pills: { label: string; color: string }[] = [];
+  if (item.urgent)                pills.push({ label: "Urgent", color: "text-red-400 bg-red-400/10" });
+  if (item.legal)                 pills.push({ label: "Legal", color: "text-purple-400 bg-purple-400/10" });
+  if (item.financial)             pills.push({ label: "Financial", color: "text-amber-400 bg-amber-400/10" });
+  if (item.daysOverdue > 0)       pills.push({ label: `${item.daysOverdue}d overdue`, color: "text-red-300 bg-red-300/10" });
+  if (item.hardDeadlineWithin7)   pills.push({ label: "Due soon", color: "text-amber-300 bg-amber-300/10" });
+  if (item.multiplePeopleWaiting) pills.push({ label: "Team thread", color: "text-blue-300 bg-blue-300/10" });
+  if (item.needsReply && !item.urgent) pills.push({ label: "Unread", color: "text-text-muted bg-white/5" });
+
+  if (pills.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-0.5">
+      {pills.slice(0, 2).map(p => (
+        <span key={p.label} className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", p.color)}>
+          {p.label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 interface PriorityEngineProps {
-  items?: PriorityItem[];
+  items?: (PriorityItem & { displayScore?: number })[];
   onJeana?: (title: string, context: string) => void;
 }
 
 export function PriorityEngine({ items = [], onJeana }: PriorityEngineProps) {
-  const [energyModeOn, setEnergyModeOn] = useState(true);
+  const [filter, setFilter] = useState<"all" | "email" | "asana" | "teams">("all");
   const [doneItems, setDoneItems] = useState<Set<string>>(new Set());
 
-  const slot = useMemo(() => getEnergySlot(), []);
+  const filtered = useMemo(() =>
+    items
+      .filter(i => !doneItems.has(i.title))
+      .filter(i => filter === "all" || i.source === filter)
+      .slice(0, 15),
+    [items, filter, doneItems]
+  );
 
-  const scored = useMemo(() => {
-    return items.map((item) => {
-      const score = calcScore(item);
-      const energyBonus = energyModeOn ? slot.boost(item) : 0;
-      const displayScore = Math.max(0, Math.min(100, score + energyBonus));
-      return { ...item, score, energyBonus, displayScore };
-    });
-  }, [items, energyModeOn, slot]);
-
-  const sorted = useMemo(() => {
-    return [...scored].sort((a, b) => (b.displayScore ?? 0) - (a.displayScore ?? 0));
-  }, [scored]);
-
-  const top12 = sorted.slice(0, 12);
-
-  function handleMarkDone(title: string) {
-    setDoneItems((prev) => new Set(prev).add(title));
-  }
+  const counts = useMemo(() => ({
+    email: items.filter(i => i.source === "email").length,
+    asana: items.filter(i => i.source === "asana").length,
+    teams: items.filter(i => i.source === "teams").length,
+  }), [items]);
 
   return (
-    <section className="glass-card anim-card" style={{ animationDelay: "80ms" }}>
-      <h2 className="flex items-center gap-2 text-sm font-semibold text-text-heading mb-4">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-        </svg>
-        Priority Score Engine
-      </h2>
-
-      {/* Energy banner */}
-      <div className={cn(
-        "rounded-xl p-3 mb-4 flex items-center justify-between gap-3",
-        "bg-[var(--accent-amber-dim)] border border-[rgba(212,164,76,0.15)]",
-        energyModeOn && "animate-pulse-slow"
-      )}>
-        <div>
-          <div className="text-sm font-medium text-text-heading">
-            {energyModeOn ? slot.label : "Energy Mode Off"}
-          </div>
-          <div className="text-xs text-text-muted">
-            {energyModeOn ? "Scores adjusted for your current time slot" : "Using original priority scores"}
-          </div>
-        </div>
-        <button
-          className={cn(
-            "text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer",
-            energyModeOn
-              ? "bg-accent-amber text-[#0d0d0d]"
-              : "bg-[var(--tab-bg)] text-text-muted"
-          )}
-          onClick={() => setEnergyModeOn(!energyModeOn)}
-        >
-          Energy Mode: {energyModeOn ? "ON" : "OFF"}
-        </button>
+    <section className="glass-card anim-card flex flex-col" style={{ animationDelay: "80ms" }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-text-heading">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          </svg>
+          Priority Queue
+          <span className="text-xs font-normal text-text-muted">({items.length})</span>
+        </h2>
       </div>
 
-      {items.length === 0 ? (
+      {/* Filter tabs */}
+      <div className="flex gap-1 mb-3">
+        {([["all", "All"], ["email", `Email ${counts.email}`], ["asana", `Tasks ${counts.asana}`], ["teams", `Teams ${counts.teams}`]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setFilter(key)}
+            className={cn(
+              "text-xs px-2.5 py-1 rounded-lg transition-all cursor-pointer",
+              filter === key
+                ? "bg-accent-amber text-[#0d0d0d] font-semibold"
+                : "text-text-muted hover:text-text-heading bg-white/5 hover:bg-white/10"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
         <EmptyState />
       ) : (
-      <>
-      {/* Priority list */}
-      <div className="space-y-0 divide-y divide-[var(--bg-card-border)]">
-        {top12.map((item) => {
-          const isDone = doneItems.has(item.title);
-          return (
-            <div
-              key={item.title}
-              className={cn(
-                "flex items-center gap-3 py-2.5 transition-opacity",
-                isDone && "opacity-40"
-              )}
-            >
-              {(() => {
-                const inner = (
-                  <>
-                    <span className={cn("text-lg font-bold tabular-nums w-8 text-right shrink-0", scoreClass(item.displayScore ?? 0))}>
-                      {item.displayScore}
-                      {energyModeOn && item.energyBonus !== 0 && (
-                        <span className="text-[10px] ml-0.5 opacity-70">
-                          {item.energyBonus > 0 ? "+" : ""}{item.energyBonus}
-                        </span>
-                      )}
-                    </span>
-                    <span className="shrink-0 text-text-muted">
-                      <SourceIcon source={item.source} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-text-heading truncate">{item.title}</div>
-                      <div className="text-xs text-text-muted truncate">{scoreReason(item)}</div>
-                    </div>
-                  </>
-                );
-                return item.url ? (
-                  <a className="hot-link flex items-center gap-3 min-w-0 flex-1" href={item.url} target="_blank" rel="noopener noreferrer">
-                    {inner}
+        <div className="space-y-0 divide-y divide-[var(--bg-card-border)] overflow-y-auto" style={{ maxHeight: 480 }}>
+          {filtered.map((item) => (
+            <div key={item.title} className="flex items-start gap-3 py-3">
+              <ScoreBadge score={item.displayScore ?? 0} />
+              <span className="shrink-0 text-text-muted mt-0.5">
+                <SourceIcon source={item.source} />
+              </span>
+              <div className="min-w-0 flex-1">
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noopener noreferrer"
+                    className="text-sm text-text-heading hover:text-accent-amber transition-colors line-clamp-2 leading-snug">
+                    {item.title}
                   </a>
                 ) : (
-                  <div className="flex items-center gap-3 min-w-0 flex-1">{inner}</div>
-                );
-              })()}
-              <span className={cn("text-[10px] font-semibold uppercase tracking-wide rounded-md px-2 py-0.5 shrink-0", SOURCE_TAG_CLASSES[item.source])}>
-                {item.source}
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                {item.source === "asana" ? (
+                  <div className="text-sm text-text-heading line-clamp-2 leading-snug">{item.title}</div>
+                )}
+                <SignalPills item={item} />
+              </div>
+              <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                {item.source === "asana" && (
                   <button
-                    className={cn(
-                      "text-xs px-2 py-1 rounded-md transition-colors cursor-pointer",
-                      isDone
-                        ? "bg-accent-teal/20 text-accent-teal"
-                        : "hover:bg-accent-teal/20 text-text-muted hover:text-accent-teal"
-                    )}
-                    onClick={() => handleMarkDone(item.title)}
-                    disabled={isDone}
+                    className="text-xs px-2 py-1 rounded-md hover:bg-teal-400/20 text-text-muted hover:text-teal-400 transition-colors cursor-pointer"
+                    onClick={() => setDoneItems(prev => new Set(prev).add(item.title))}
                   >
-                    {isDone ? "Done" : "Done"}
+                    Done
                   </button>
-                ) : item.url ? (
-                  <a
-                    className="text-xs px-2 py-1 rounded-md hover:bg-[var(--accent-amber-dim)] text-text-muted hover:text-accent-amber transition-colors"
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Open
-                  </a>
-                ) : null}
+                )}
                 <button
-                  className="text-xs text-text-muted hover:text-accent-amber transition-colors px-1 cursor-pointer"
-                  onClick={() => onJeana?.(item.title, `Source: ${item.source}. ${scoreReason(item)}`)}
-                  title="Delegate to Jeana"
+                  className="text-xs px-2 py-1 rounded-md hover:bg-amber-400/10 text-text-muted hover:text-amber-400 transition-colors cursor-pointer"
+                  onClick={() => onJeana?.(item.title, item.source)}
                 >
                   Jeana
                 </button>
               </div>
             </div>
-          );
-        })}
-      </div>
-      </>
+          ))}
+        </div>
       )}
     </section>
   );
