@@ -19,7 +19,6 @@ interface Props {
 }
 
 const KNOWN_CONTACTS = [
-  { name: "Jeana Ceglia", address: "jeanac@sonance.com" },
   { name: "Derick Dahl", address: "derick.dahl@sonance.com" },
   { name: "Rob Roland", address: "rob.roland@sonance.com" },
   { name: "Jorge Notni", address: "jorge.notni@sonance.com" },

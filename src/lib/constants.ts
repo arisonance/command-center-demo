@@ -20,12 +20,6 @@ export const TONE_PRESETS: TonePreset[] = [
       `Got it — ${context} Will circle back shortly.`,
   },
   {
-    id: 'delegate-jeana',
-    label: 'Delegate to Jeana',
-    generate: (context: string) =>
-      `Thanks for sending this over. ${context} I'm looping in Jeana who can help coordinate next steps. Jeana — can you take point on this?`,
-  },
-  {
     id: 'decline-gracefully',
     label: 'Decline Gracefully',
     generate: (context: string) =>
@@ -33,12 +27,12 @@ export const TONE_PRESETS: TonePreset[] = [
   },
 ];
 
-export const WRITING_STYLE = `You are drafting a reply for a CEO. Match this writing style:
+export const WRITING_STYLE = `You are drafting a professional reply. Match this writing style:
 - Direct and decisive, but warm when appropriate
 - Short paragraphs, no filler words
 - Confident tone, clear next steps when applicable
 - Uses first person naturally ("I'll handle it", "Let's connect")
-- Professional but not stiff — conversational with senior peers
+- Professional but not stiff — conversational
 - Signs off simply or not at all depending on context`;
 
 export function outlookEmailUrl(messageId: string): string {

@@ -103,7 +103,7 @@ export function EODSummary({ isOpen, onClose }: EODSummaryProps) {
             className="text-xs px-3 py-1.5 rounded-lg border border-[var(--bg-card-border)] text-text-muted hover:text-text-body transition-colors cursor-pointer"
             onClick={onClose}
           >
-            Send to Jeana
+            Close
           </button>
         </div>
       </div>

@@ -38,7 +38,7 @@ const INSIGHTS = [
   { color: "red", text: "7 Asana tasks overdue > 30 days \u2014 consider bulk cleanup or reassignment" },
   { color: "amber", text: "Meeting load today: 54% of day \u2014 heavier than your 40% weekly average" },
   { color: "amber", text: "3 reply drafts pending > 7 days \u2014 Scott WRV, EP Wealth, NPI all awaiting response" },
-  { color: "green", text: "Jeana offered Cortex MCP for Claude \u2014 say yes, it's a quick AI tooling win" },
+  { color: "green", text: "Cortex MCP available for Claude \u2014 quick AI tooling win" },
 ];
 
 const chartTextColor = "#B8B8B8";

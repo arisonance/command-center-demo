@@ -38,7 +38,7 @@ const BLOCKS: TimelineBlock[] = [
   },
   {
     type: "overlay", startH: 10, startM: 30, durationH: 0.5,
-    title: "Dr. Lindberg Call", meta: "10:30 AM \u00B7 Phone \u00B7 via Jeana",
+    title: "Dr. Lindberg Call", meta: "10:30 AM \u00B7 Phone",
     url: "https://outlook.office365.com/owa/?path=/calendar",
   },
   {
