@@ -1,6 +1,303 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCortexToken, cortexInit, cortexCall } from "@/lib/cortex/client";
 import { getConnections, type CortexConnection } from "@/lib/cortex/connections";
+import type { AsanaCommentThread, Task } from "@/lib/types";
+
+const CORTEX_URL = process.env.NEXT_PUBLIC_CORTEX_URL ?? "";
+
+interface SessionTool {
+  name: string;
+  inputSchema?: {
+    properties?: Record<string, unknown>;
+  };
+}
+
+interface AuthenticatedUser {
+  name: string;
+  email: string;
+}
+
+interface AsanaPerson {
+  gid: string;
+  name: string;
+  email: string;
+}
+
+function parseCortexUser(request: NextRequest): AuthenticatedUser {
+  const raw = request.cookies.get("cortex_user")?.value;
+  if (!raw) {
+    return { name: "", email: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { name?: string; email?: string };
+    return {
+      name: parsed.name ?? "",
+      email: parsed.email ?? "",
+    };
+  } catch {
+    return { name: "", email: "" };
+  }
+}
+
+function normalizeIdentity(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function stripHtml(value: string | null | undefined): string {
+  return (value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function asArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object"
+  );
+}
+
+function firstArrayProperty(
+  payload: Record<string, unknown>,
+  keys: string[]
+): Record<string, unknown>[] {
+  for (const key of keys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return asArray(value);
+    }
+  }
+  return [];
+}
+
+function toAsanaPerson(value: unknown): AsanaPerson | null {
+  if (!value || typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  const gid = String(record.gid ?? record.id ?? "");
+  const name = String(
+    record.name ?? record.display_name ?? record.displayName ?? ""
+  );
+  const email = String(record.email ?? record.mail ?? "");
+
+  if (!gid && !name && !email) return null;
+  return { gid, name, email };
+}
+
+function peopleList(values: unknown): AsanaPerson[] {
+  return asArray(values)
+    .map((entry) => toAsanaPerson(entry))
+    .filter((entry): entry is AsanaPerson => entry !== null);
+}
+
+function personMatchesUser(
+  person: AsanaPerson | null,
+  authenticatedUser: AuthenticatedUser
+): boolean {
+  if (!person) return false;
+
+  const userEmail = normalizeIdentity(authenticatedUser.email);
+  const userName = normalizeIdentity(authenticatedUser.name);
+
+  if (userEmail && normalizeIdentity(person.email) === userEmail) {
+    return true;
+  }
+
+  if (userName && normalizeIdentity(person.name) === userName) {
+    return true;
+  }
+
+  return false;
+}
+
+function listMatchesUser(
+  names: string[] | undefined,
+  emails: string[] | undefined,
+  authenticatedUser: AuthenticatedUser
+): boolean {
+  const userEmail = normalizeIdentity(authenticatedUser.email);
+  const userName = normalizeIdentity(authenticatedUser.name);
+
+  if (
+    userEmail &&
+    (emails ?? []).some((email) => normalizeIdentity(email) === userEmail)
+  ) {
+    return true;
+  }
+
+  if (
+    userName &&
+    (names ?? []).some((name) => normalizeIdentity(name) === userName)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+async function cortexSessionRequest(
+  token: string,
+  sessionId: string,
+  id: string,
+  method: "tools/call" | "tools/list",
+  params?: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  if (!CORTEX_URL) {
+    throw new Error("NEXT_PUBLIC_CORTEX_URL is not configured");
+  }
+
+  const res = await fetch(`${CORTEX_URL}/mcp/cortex`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "mcp-protocol-version": "2024-11-05",
+      "x-cortex-client": "cortex-mcp-stdio",
+      "mcp-session-id": sessionId,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method,
+      params: params ?? {},
+    }),
+  });
+
+  const payload = (await res.json()) as {
+    result?: Record<string, unknown>;
+    error?: { message?: string };
+  };
+
+  if (!res.ok || payload.error) {
+    throw new Error(
+      payload.error?.message || `Cortex request failed with ${res.status}`
+    );
+  }
+
+  return payload.result ?? {};
+}
+
+async function listSessionTools(
+  token: string,
+  sessionId: string
+): Promise<SessionTool[]> {
+  try {
+    const result = await cortexSessionRequest(
+      token,
+      sessionId,
+      "tools_list",
+      "tools/list"
+    );
+
+    return asArray(result.tools).map((tool) => ({
+      name: String(tool.name ?? ""),
+      inputSchema:
+        typeof tool.inputSchema === "object" && tool.inputSchema
+          ? (tool.inputSchema as SessionTool["inputSchema"])
+          : undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function selectAsanaStoryTool(tools: SessionTool[]): SessionTool | null {
+  const exactCandidates = [
+    "asana__list_task_stories",
+    "asana__get_task_stories",
+    "asana__list_stories",
+    "asana__get_stories",
+    "asana__list_comments",
+    "asana__get_comments",
+  ];
+
+  for (const candidate of exactCandidates) {
+    const match = tools.find((tool) => tool.name === candidate);
+    if (match) return match;
+  }
+
+  return (
+    tools.find(
+      (tool) =>
+        tool.name.startsWith("asana__") &&
+        (tool.name.includes("story") || tool.name.includes("comment")) &&
+        tool.name.includes("task")
+    ) ?? null
+  );
+}
+
+function buildStoryArgs(tool: SessionTool, taskGid: string): Record<string, unknown> {
+  const props = Object.keys(tool.inputSchema?.properties ?? {});
+  const args: Record<string, unknown> = {};
+
+  if (props.includes("task_gid")) args.task_gid = taskGid;
+  if (props.includes("task_id")) args.task_id = taskGid;
+  if (props.includes("gid")) args.gid = taskGid;
+  if (props.includes("task")) args.task = taskGid;
+  if (props.includes("resource_gid")) args.resource_gid = taskGid;
+  if (props.includes("resource_id")) args.resource_id = taskGid;
+  if (props.includes("limit")) args.limit = 20;
+
+  if (Object.keys(args).length === 0) {
+    return { task_gid: taskGid, limit: 20 };
+  }
+
+  return args;
+}
+
+function extractTextValue(value: unknown): string {
+  if (typeof value === "string") return stripHtml(value);
+  if (!value || typeof value !== "object") return "";
+
+  const record = value as Record<string, unknown>;
+  return stripHtml(
+    String(
+      record.text ??
+        record.content ??
+        record.html_text ??
+        record.htmlText ??
+        record.display_value ??
+        ""
+    )
+  );
+}
+
+function isHumanCommentStory(story: Record<string, unknown>): boolean {
+  const subtype = String(
+    story.resource_subtype ?? story.subtype ?? story.story_type ?? story.type ?? ""
+  ).toLowerCase();
+  const text = extractTextValue(story.text ?? story.html_text ?? story.content);
+
+  if (!text) return false;
+
+  if (subtype.includes("comment")) return true;
+
+  return ![
+    "assigned",
+    "completed",
+    "changed",
+    "added",
+    "removed",
+    "due_date",
+    "dependency",
+    "section",
+  ].some((token) => subtype.includes(token));
+}
+
+function extractStories(payload: Record<string, unknown>): Record<string, unknown>[] {
+  return firstArrayProperty(payload, [
+    "stories",
+    "comments",
+    "items",
+    "data",
+    "events",
+    "value",
+  ]);
+}
 
 // ─── M365 via Cortex MCP ────────────────────────────────────────────────────
 
@@ -145,6 +442,11 @@ async function fetchAsanaTasks(token: string, sessionId: string) {
   return allTasks
     .filter((t) => !t.completed)
     .map((t) => {
+      const assignee = toAsanaPerson(t.assignee);
+      const createdBy = toAsanaPerson(t.created_by ?? t.createdBy);
+      const collaborators = peopleList(
+        t.collaborators ?? t.followers ?? t.members ?? t.followers_list
+      );
       const dueOn = (t.due_on as string) || (t.due_date as string) || null;
       let daysOverdue = 0;
       if (dueOn) {
@@ -160,7 +462,17 @@ async function fetchAsanaTasks(token: string, sessionId: string) {
         notes: (t.notes as string) || "",
         due_on: dueOn || "",
         completed: false,
-        assignee: (t.assignee as Record<string, unknown>)?.gid || null,
+        assignee: assignee?.gid || "",
+        assignee_name: assignee?.name || null,
+        assignee_email: assignee?.email || null,
+        created_by_gid: createdBy?.gid || null,
+        created_by_name: createdBy?.name || null,
+        created_by_email: createdBy?.email || null,
+        collaborator_names: collaborators.map((person) => person.name).filter(Boolean),
+        collaborator_emails: collaborators.map((person) => person.email).filter(Boolean),
+        follower_names: collaborators.map((person) => person.name).filter(Boolean),
+        follower_emails: collaborators.map((person) => person.email).filter(Boolean),
+        modified_at: (t.modified_at as string) || (t.modifiedAt as string) || null,
         project_name: (t.project_name as string) || "Tasks",
         permalink_url: t.permalink_url,
         priority: "normal",
@@ -168,6 +480,211 @@ async function fetchAsanaTasks(token: string, sessionId: string) {
         synced_at: now,
       };
     });
+}
+
+async function fetchAsanaCommentThreads(
+  token: string,
+  sessionId: string,
+  tasks: Task[],
+  authenticatedUser: AuthenticatedUser
+) {
+  const tools = await listSessionTools(token, sessionId);
+  const storyTool = selectAsanaStoryTool(tools);
+
+  if (!storyTool) {
+    return [];
+  }
+
+  const candidateTasks = [...tasks]
+    .filter((task) => task.permalink_url && !task.completed)
+    .sort((a, b) => {
+      const modifiedDiff =
+        new Date(b.modified_at || b.synced_at).getTime() -
+        new Date(a.modified_at || a.synced_at).getTime();
+      if (modifiedDiff !== 0) return modifiedDiff;
+
+      if (a.due_on && b.due_on) {
+        return new Date(a.due_on).getTime() - new Date(b.due_on).getTime();
+      }
+
+      return 0;
+    })
+    .slice(0, 20);
+
+  const syncedAt = new Date().toISOString();
+  const results = await Promise.allSettled(
+    candidateTasks.map(async (task) => {
+      const result = await cortexSessionRequest(
+        token,
+        sessionId,
+        `asana_stories_${task.task_gid}`,
+        "tools/call",
+        {
+          name: storyTool.name,
+          arguments: buildStoryArgs(storyTool, task.task_gid),
+        }
+      );
+
+      const rawPayload = (() => {
+        const content = asArray(result.content);
+        const firstText = content.find(
+          (entry) => typeof entry.text === "string"
+        )?.text;
+
+        if (typeof firstText === "string") {
+          try {
+            const parsed = JSON.parse(firstText) as Record<string, unknown>;
+            return parsed;
+          } catch {
+            return { value: [] };
+          }
+        }
+
+        return result;
+      })();
+
+      const stories = extractStories(rawPayload);
+      const commentStories = stories
+        .filter(isHumanCommentStory)
+        .map((story) => {
+          const author = toAsanaPerson(
+            story.created_by ??
+              story.createdBy ??
+              story.author ??
+              story.user ??
+              story.actor
+          );
+
+          return {
+            author,
+            createdAt: String(
+              story.created_at ??
+                story.createdAt ??
+                story.occurred_at ??
+                story.timestamp ??
+                task.modified_at ??
+                task.synced_at
+            ),
+            text: extractTextValue(
+              story.text ??
+                story.html_text ??
+                story.content ??
+                story.body ??
+                story.description
+            ),
+          };
+        })
+        .filter((story) => story.text && story.author)
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+
+      if (commentStories.length === 0) {
+        return null;
+      }
+
+      const latestComment = commentStories[0];
+      if (!latestComment.author || personMatchesUser(latestComment.author, authenticatedUser)) {
+        return null;
+      }
+
+      let relevanceReason: AsanaCommentThread["relevance_reason"] | null = null;
+
+      if (
+        personMatchesUser(
+          {
+            gid: task.assignee,
+            name: task.assignee_name || "",
+            email: task.assignee_email || "",
+          },
+          authenticatedUser
+        )
+      ) {
+        relevanceReason = "assignee";
+      } else if (
+        listMatchesUser(
+          task.collaborator_names,
+          task.collaborator_emails,
+          authenticatedUser
+        )
+      ) {
+        relevanceReason = "collaborator";
+      } else if (
+        listMatchesUser(
+          task.follower_names,
+          task.follower_emails,
+          authenticatedUser
+        )
+      ) {
+        relevanceReason = "follower";
+      } else if (
+        commentStories.some((story) =>
+          personMatchesUser(story.author, authenticatedUser)
+        )
+      ) {
+        relevanceReason = "prior_commenter";
+      } else if (
+        personMatchesUser(
+          {
+            gid: task.created_by_gid || "",
+            name: task.created_by_name || "",
+            email: task.created_by_email || "",
+          },
+          authenticatedUser
+        )
+      ) {
+        relevanceReason = "creator";
+      }
+
+      if (!relevanceReason) {
+        return null;
+      }
+
+      const participantNames = Array.from(
+        new Set(
+          commentStories
+            .map((story) => story.author?.name || "")
+            .filter(Boolean)
+        )
+      );
+      const participantEmails = Array.from(
+        new Set(
+          commentStories
+            .map((story) => story.author?.email || "")
+            .filter(Boolean)
+        )
+      );
+
+      return {
+        id: `${task.task_gid}:${latestComment.createdAt}`,
+        task_gid: task.task_gid,
+        task_name: task.name,
+        task_due_on: task.due_on || null,
+        project_name: task.project_name,
+        permalink_url: task.permalink_url,
+        latest_comment_text: latestComment.text,
+        latest_comment_at: latestComment.createdAt,
+        latest_commenter_name: latestComment.author?.name || "Asana",
+        latest_commenter_email: latestComment.author?.email || null,
+        participant_names: participantNames,
+        participant_emails: participantEmails,
+        relevance_reason: relevanceReason,
+        synced_at: syncedAt,
+      } satisfies AsanaCommentThread;
+    })
+  );
+
+  return results
+    .flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : []
+    )
+    .flatMap((thread) => (thread ? [thread] : []))
+    .sort(
+      (a, b) =>
+        new Date(b.latest_comment_at).getTime() -
+        new Date(a.latest_comment_at).getTime()
+    );
 }
 
 // ─── Teams chats via Cortex MCP ──────────────────────────────────────────
@@ -222,6 +739,10 @@ async function fetchTeamsChats(token: string, sessionId: string) {
         last_message_from: from,
         last_activity: (chat.lastUpdatedDateTime as string) || now,
         members: [],
+        web_url:
+          (chat.webUrl as string) ||
+          (chat.webLink as string) ||
+          `https://teams.microsoft.com/l/chat/${encodeURIComponent(String(chat.id))}/conversations`,
         synced_at: now,
       };
     })
@@ -274,6 +795,7 @@ async function fetchSlackMessages(token: string, sessionId: string) {
       );
       return {
         channel: ch.name,
+        channelId: ch.id,
         messages: (msgs.messages ?? []) as Record<string, unknown>[],
       };
     })
@@ -283,7 +805,7 @@ async function fetchSlackMessages(token: string, sessionId: string) {
   const items: Record<string, unknown>[] = [];
   for (const r of messages) {
     if (r.status !== "fulfilled") continue;
-    const { channel, messages: msgs } = r.value;
+    const { channel, channelId, messages: msgs } = r.value;
     for (const m of msgs.slice(0, 2)) {
       if (!m.text && !m.attachments) continue;
       items.push({
@@ -297,10 +819,14 @@ async function fetchSlackMessages(token: string, sessionId: string) {
           parseFloat(m.ts as string) * 1000
         ).toISOString(),
         channel_name: channel,
+        channel_id: (channelId as string) || null,
         reactions: [],
         thread_reply_count: (m.reply_count as number) || 0,
         has_files: !!(m.files as unknown[])?.length,
-        permalink: null,
+        permalink:
+          (m.permalink as string) ||
+          (m.permalink_url as string) ||
+          null,
         synced_at: now,
       });
     }
@@ -561,6 +1087,7 @@ export async function GET(request: NextRequest) {
 
   const errors: Record<string, string | null> = {};
   const skipped: string[] = [];
+  const authenticatedUser = parseCortexUser(request);
 
   // Check which services the user has connected via Cortex
   const connections = await getConnections(cortexToken);
@@ -586,6 +1113,7 @@ export async function GET(request: NextRequest) {
         emails: [],
         calendar: [],
         tasks: [],
+        asanaComments: [],
         chats: [],
         slack: [],
         powerbi: { reports: [], kpis: [] },
@@ -612,7 +1140,16 @@ export async function GET(request: NextRequest) {
   }
 
   if (hasAsana) {
-    fetches.tasks = fetchAsanaTasks(cortexToken, sessionId);
+    const tasksPromise = fetchAsanaTasks(cortexToken, sessionId);
+    fetches.tasks = tasksPromise;
+    fetches.asanaComments = tasksPromise.then((tasks) =>
+      fetchAsanaCommentThreads(
+        cortexToken,
+        sessionId,
+        tasks as Task[],
+        authenticatedUser
+      )
+    );
   } else {
     skipped.push("asana");
   }
@@ -657,6 +1194,7 @@ export async function GET(request: NextRequest) {
     emails: resolved.emails ?? [],
     calendar: resolved.calendar ?? [],
     tasks: resolved.tasks ?? [],
+    asanaComments: resolved.asanaComments ?? [],
     chats: resolved.chats ?? [],
     slack: resolved.slack ?? [],
     powerbi: {

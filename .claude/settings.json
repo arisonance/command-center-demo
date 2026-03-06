@@ -1,3 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npx eslint src/hooks/useAuth.ts)",
+      "Bash(vercel --prod --yes)"
+    ]
+  },
   "mcpServers": {}
 }

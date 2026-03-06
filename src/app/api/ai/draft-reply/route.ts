@@ -1,60 +1,138 @@
-import { streamText } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
-import { NextResponse } from 'next/server';
-import { WRITING_STYLE } from '@/lib/constants';
+import { NextRequest, NextResponse } from "next/server";
+import { streamText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { getWritingStyle } from "@/lib/constants";
+import { getCortexToken, cortexCall, cortexInit } from "@/lib/cortex/client";
+import { extractEmailDetail } from "@/lib/email-reply";
 
-export async function POST(request: Request) {
+function parseSignedInEmail(request: NextRequest): string {
+  const rawCookie = request.cookies.get("cortex_user")?.value;
+  if (!rawCookie) return "";
+
+  try {
+    const decoded = decodeURIComponent(rawCookie);
+    const parsed = JSON.parse(decoded) as { email?: string };
+    return parsed.email ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function trimForModel(value: string, max = 6000): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max).trimEnd()}\n\n[truncated]`;
+}
+
+export async function POST(request: NextRequest) {
   let body;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { message, prompt, channel, sender, subject } = body;
+  const prompt = String(body.prompt ?? "").trim();
+  const channel = String(body.channel ?? "").trim();
+  const messageId = String(body.messageId ?? "").trim();
 
-  if (!message || !prompt || !channel || !sender || !subject) {
-    return NextResponse.json({ error: 'Missing required fields: message, prompt, channel, sender, subject' }, { status: 400 });
+  if (!prompt || !channel) {
+    return NextResponse.json(
+      { error: "Missing required fields: prompt, channel" },
+      { status: 400 }
+    );
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+    return NextResponse.json(
+      { error: "ANTHROPIC_API_KEY not configured" },
+      { status: 500 }
+    );
   }
 
-  const systemPrompt = `${WRITING_STYLE}
+  let resolvedMessage = String(body.message ?? "").trim();
+  let resolvedSender = String(body.sender ?? "").trim();
+  let resolvedSubject = String(body.subject ?? "").trim();
+
+  if (channel === "email") {
+    if (!messageId) {
+      return NextResponse.json(
+        { error: "messageId is required for email drafts" },
+        { status: 400 }
+      );
+    }
+
+    const cortexToken = getCortexToken(request);
+    if (!cortexToken) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const sessionId = await cortexInit(cortexToken);
+    const rawMessage = await cortexCall(
+      cortexToken,
+      sessionId,
+      `draft-email-${messageId}`,
+      "m365__get_email",
+      { message_id: messageId }
+    );
+
+    const email = extractEmailDetail(rawMessage, messageId);
+    resolvedMessage = email.replyableText || email.bodyText;
+    resolvedSender = email.fromName || email.fromEmail || resolvedSender;
+    resolvedSubject = email.subject || resolvedSubject;
+  }
+
+  if (!resolvedMessage || !resolvedSender || !resolvedSubject) {
+    return NextResponse.json(
+      { error: "Unable to resolve message context for draft" },
+      { status: 400 }
+    );
+  }
+
+  const isAri = parseSignedInEmail(request).toLowerCase() === "ari@sonance.com";
+  const systemPrompt = `${getWritingStyle(isAri)}
 
 You are drafting a reply to a ${channel} message.
-Subject: ${subject}
-From: ${sender}
-
-The user will provide the original message they received and their thoughts on how to reply. Draft a polished reply based on their instructions. Output ONLY the reply text — no subject line, no "Dear X" unless it fits naturally, no explanations.`;
+Reply as the signed-in user. Ground the reply in the actual message content and the user's guidance.
+Do not echo the original salutation unless it genuinely fits the reply.
+Do not address copied recipients unless the reply truly needs them.
+For appreciation or thank-you notes, keep the reply to 1-3 sentences.
+Do not invent meetings, next steps, owners, or commitments unless the message or user guidance explicitly supports them.
+Output only the reply body. No subject line. No explanation.`;
 
   try {
     const result = streamText({
-      model: anthropic('claude-sonnet-4-20250514'),
+      model: anthropic("claude-sonnet-4-20250514"),
       system: systemPrompt,
       messages: [
         {
-          role: 'user',
-          content: `Original message from ${sender}:\n"${message}"\n\nMy thoughts on the reply:\n${prompt}`,
+          role: "user",
+          content: [
+            `Incoming ${channel} subject: ${resolvedSubject}`,
+            `From: ${resolvedSender}`,
+            "",
+            "Incoming message:",
+            trimForModel(resolvedMessage),
+            "",
+            "Reply guidance:",
+            prompt,
+          ].join("\n"),
         },
       ],
       maxOutputTokens: 500,
     });
 
-    // Consume the stream to catch errors (auth, rate limit, etc.)
-    // then return the full text. Short replies don't need chunked streaming.
     const text = await result.text;
-
     if (!text.trim()) {
-      return NextResponse.json({ error: 'Empty response from AI' }, { status: 502 });
+      return NextResponse.json({ error: "Empty response from AI" }, { status: 502 });
     }
 
     return new Response(text, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
-  } catch (err) {
-    const message2 = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message2 }, { status: 500 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

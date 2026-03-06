@@ -39,6 +39,16 @@ export interface Task {
   due_on: string;
   completed: boolean;
   assignee: string;
+  assignee_name?: string | null;
+  assignee_email?: string | null;
+  created_by_gid?: string | null;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
+  collaborator_names?: string[];
+  collaborator_emails?: string[];
+  follower_names?: string[];
+  follower_emails?: string[];
+  modified_at?: string | null;
   project_name: string;
   permalink_url: string;
   priority: string;
@@ -64,6 +74,29 @@ export interface Chat {
   last_message_from: string;
   last_activity: string;
   members: string[];
+  web_url?: string;
+  synced_at: string;
+}
+
+export interface AsanaCommentThread {
+  id: string;
+  task_gid: string;
+  task_name: string;
+  task_due_on: string | null;
+  project_name: string;
+  permalink_url: string;
+  latest_comment_text: string;
+  latest_comment_at: string;
+  latest_commenter_name: string;
+  latest_commenter_email?: string | null;
+  participant_names: string[];
+  participant_emails?: string[];
+  relevance_reason:
+    | "assignee"
+    | "collaborator"
+    | "follower"
+    | "prior_commenter"
+    | "creator";
   synced_at: string;
 }
 
@@ -154,6 +187,7 @@ export interface SlackFeedMessage {
   text: string | null;
   timestamp: string;
   channel_name: string;
+  channel_id?: string | null;
   reactions: { name: string; count: number }[];
   thread_reply_count: number;
   has_files: boolean;

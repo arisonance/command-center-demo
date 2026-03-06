@@ -13,6 +13,7 @@ import type {
   Email,
   CalendarEvent,
   Task,
+  AsanaCommentThread,
   SalesforceOpportunity,
   Chat,
   SlackFeedMessage,
@@ -30,6 +31,7 @@ interface LiveDataState {
   emails: Email[];
   calendar: CalendarEvent[];
   tasks: Task[];
+  asanaComments: AsanaCommentThread[];
   opportunities: SalesforceOpportunity[];
   chats: Chat[];
   slack: SlackFeedMessage[];
@@ -50,6 +52,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [calendar, setCalendar] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [asanaComments, setAsanaComments] = useState<AsanaCommentThread[]>([]);
   const [opportunities, setOpportunities] = useState<SalesforceOpportunity[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [slack, setSlack] = useState<SlackFeedMessage[]>([]);
@@ -69,6 +72,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
       setEmails((data.emails ?? []) as Email[]);
       setCalendar((data.calendar ?? []) as CalendarEvent[]);
       setTasks((data.tasks ?? []) as Task[]);
+      setAsanaComments((data.asanaComments ?? []) as AsanaCommentThread[]);
       setOpportunities((data.pipeline ?? []) as SalesforceOpportunity[]);
       setChats((data.chats ?? []) as Chat[]);
       setSlack((data.slack ?? []) as SlackFeedMessage[]);
@@ -103,6 +107,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
         emails,
         calendar,
         tasks,
+        asanaComments,
         opportunities,
         chats,
         slack,
