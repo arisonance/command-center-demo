@@ -7,7 +7,7 @@ import type { PowerBIKPI, PowerBIReportConfig } from '@/lib/types';
 export function usePowerBI() {
   const { powerbi, loading, error } = useLiveData();
 
-  const kpis: PowerBIKPI[] = (powerbi?.kpis ?? []) as PowerBIKPI[];
+  const kpis = useMemo(() => (powerbi?.kpis ?? []) as PowerBIKPI[], [powerbi?.kpis]);
   const reportConfigs: PowerBIReportConfig[] = (powerbi?.reports ?? []) as PowerBIReportConfig[];
 
   const kpisByCategory = useMemo(() => {

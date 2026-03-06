@@ -1,5 +1,4 @@
 "use client";
-import { useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   Chart as ChartJS,
@@ -29,9 +28,6 @@ ChartJS.register(
   Filler
 );
 
-// Score distribution data - matches prototype
-const SCORE_BANDS = { "90-100": 4, "70-89": 8, "50-69": 7, "Below 50": 5 };
-
 const chartTextColor = "#B8B8B8";
 const gridColor = "rgba(255,255,255,0.06)";
 
@@ -47,10 +43,10 @@ export function TrendsView() {
   };
 
   const scoreBands = {
-    "90-100": items.filter(i => ((i as any).displayScore ?? 0) >= 90).length,
-    "70-89": items.filter(i => ((i as any).displayScore ?? 0) >= 70 && ((i as any).displayScore ?? 0) < 90).length,
-    "50-69": items.filter(i => ((i as any).displayScore ?? 0) >= 50 && ((i as any).displayScore ?? 0) < 70).length,
-    "Below 50": items.filter(i => ((i as any).displayScore ?? 0) < 50).length,
+    "90-100": items.filter(i => (i.displayScore ?? 0) >= 90).length,
+    "70-89": items.filter(i => (i.displayScore ?? 0) >= 70 && (i.displayScore ?? 0) < 90).length,
+    "50-69": items.filter(i => (i.displayScore ?? 0) >= 50 && (i.displayScore ?? 0) < 70).length,
+    "Below 50": items.filter(i => (i.displayScore ?? 0) < 50).length,
   };
 
   // Live: compute meeting vs free time for today from real calendar
@@ -334,7 +330,7 @@ export function TrendsView() {
 
 function LiveInsights({ items, meetingHrs }: { items: { source: string; daysOverdue?: number; urgent?: boolean; financial?: boolean; legal?: boolean; displayScore?: number }[]; meetingHrs: number }) {
   const overdueCount = items.filter(i => (i.daysOverdue ?? 0) > 0).length;
-  const criticalCount = items.filter(i => ((i as any).displayScore ?? 0) >= 80).length;
+  const criticalCount = items.filter(i => (i.displayScore ?? 0) >= 80).length;
   const financialCount = items.filter(i => i.financial).length;
   const legalCount = items.filter(i => i.legal).length;
   const totalItems = items.length;

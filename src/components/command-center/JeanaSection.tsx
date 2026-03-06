@@ -10,7 +10,7 @@ interface JeanaItem {
 }
 
 
-function buildJeanaDraft(title: string, context: string): string {
+function buildJeanaDraft(title: string): string {
   const t = title.toLowerCase();
   if (t.includes("buying group accruals")) return "Jeana, checking in on buying group accruals \u2014 any update on the reconciliation status?\n\nThanks\nAri";
   if (t.includes("primary suite")) return "Jeana, where are we on Primary Suite Construction? Just want to make sure nothing is stuck.\n\nThanks\nAri";
@@ -30,12 +30,10 @@ interface JeanaSectionProps {
 export function JeanaSection({ items = [] }: JeanaSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalTitle, setModalTitle] = useState("");
   const [modalDraft, setModalDraft] = useState("");
 
-  function openModal(title: string, context: string) {
-    setModalTitle(title);
-    setModalDraft(buildJeanaDraft(title, context));
+  function openModal(title: string) {
+    setModalDraft(buildJeanaDraft(title));
     setModalOpen(true);
   }
 
@@ -87,7 +85,7 @@ export function JeanaSection({ items = [] }: JeanaSectionProps) {
                   className="text-xs text-text-muted hover:text-accent-amber transition-colors shrink-0 cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
-                    openModal(item.title, item.context);
+                    openModal(item.title);
                   }}
                 >
                   Delegate
@@ -97,7 +95,7 @@ export function JeanaSection({ items = [] }: JeanaSectionProps) {
             <div className="pt-3 border-t border-[var(--bg-card-border)]">
               <button
                 className="text-xs px-3 py-1.5 rounded-lg bg-accent-amber/15 text-accent-amber hover:bg-accent-amber/25 transition-colors cursor-pointer"
-                onClick={() => openModal("Daily check-in", "General daily check-in with Jeana")}
+                onClick={() => openModal("Daily check-in")}
               >
                 Message Jeana
               </button>

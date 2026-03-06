@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useEmails } from './useEmails';
 import { useTasks } from './useTasks';
 import { useChats } from './useChats';
@@ -58,6 +58,7 @@ export function usePriorityScore() {
   const { opportunities, loading: sfLoading } = useSalesforce();
 
   const loading = emailsLoading || tasksLoading || chatsLoading || sfLoading;
+  const [now] = useState(() => Date.now());
 
   const items = useMemo(() => {
     const priorityItems: PriorityItem[] = [];
@@ -94,7 +95,7 @@ export function usePriorityScore() {
       const isUnread = !email.is_read;
 
       const receivedDaysAgo = Math.max(0, Math.floor(
-        (Date.now() - new Date(email.received_at).getTime()) / (1000 * 60 * 60 * 24)
+        (now - new Date(email.received_at).getTime()) / (1000 * 60 * 60 * 24)
       ));
 
       // Skip emails older than 14 days that are also read and have no signals
@@ -206,7 +207,7 @@ export function usePriorityScore() {
       })
       .filter((item) => item.displayScore >= 10) // show anything with meaningful score
       .sort((a, b) => (b.displayScore ?? 0) - (a.displayScore ?? 0));
-  }, [emails, tasks, chats, opportunities]);
+  }, [emails, tasks, chats, opportunities, now]);
 
   return { items, loading };
 }

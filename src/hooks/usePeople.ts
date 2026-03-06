@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useEmails } from './useEmails';
 import { useCalendar } from './useCalendar';
 import { useTasks } from './useTasks';
@@ -77,12 +77,13 @@ function stripHtml(html: string): string {
 export function usePeople() {
   const { emails, loading: emailsLoading } = useEmails();
   const { events, loading: calLoading } = useCalendar();
-  const { tasks, loading: tasksLoading } = useTasks();
+  const { loading: tasksLoading } = useTasks();
   const { chats, loading: chatsLoading } = useChats();
   const { user } = useAuth();
   const fullName = user?.user_metadata?.full_name ?? "";
 
   const loading = emailsLoading || calLoading || tasksLoading || chatsLoading;
+  const [now] = useState(() => Date.now());
 
   const people: Person[] = useMemo(() => {
     const map = new Map<string, {
@@ -113,8 +114,6 @@ export function usePeople() {
       if (chatId && !p.teamsChatId) p.teamsChatId = chatId;
       if (email && !p.email) p.email = email;
     }
-
-    const now = Date.now();
 
     // ── Emails ────────────────────────────────────────────────────────
     for (const email of emails) {
@@ -246,7 +245,7 @@ export function usePeople() {
     });
 
     return result;
-  }, [emails, events, tasks, chats, fullName]);
+  }, [emails, events, chats, fullName, now]);
 
   return { people, loading };
 }

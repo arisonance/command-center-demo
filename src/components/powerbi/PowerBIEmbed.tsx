@@ -116,11 +116,12 @@ export function PowerBIEmbed({
 
     embed();
 
+    const container = containerRef.current;
     return () => {
       mounted = false;
       clearTimeout(refreshTimer);
-      if (containerRef.current) {
-        containerRef.current.innerHTML = "";
+      if (container) {
+        container.innerHTML = "";
       }
     };
   }, [reportId, fetchEmbedToken]);

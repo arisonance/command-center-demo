@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 interface CortexUser {
   sub: string;
@@ -21,25 +21,23 @@ function getCortexUserFromCookie(): CortexUser | null {
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<{
+  const [user] = useState<{
     email: string;
     user_metadata: { full_name: string; avatar_url?: string };
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+  } | null>(() => {
     const cortexUser = getCortexUserFromCookie();
     if (cortexUser) {
-      setUser({
+      return {
         email: cortexUser.email,
         user_metadata: {
           full_name: cortexUser.name,
           avatar_url: cortexUser.picture,
         },
-      });
+      };
     }
-    setLoading(false);
-  }, []);
+    return null;
+  });
+  const loading = false;
 
   const signOut = useCallback(async () => {
     // POST to signout route which clears cookies and revokes token

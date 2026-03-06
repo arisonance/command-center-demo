@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { messageId, body, subject, toEmail, toName } = await request.json();
+    const { messageId, body, subject, toEmail } = await request.json();
 
     if (!body?.trim()) {
       return NextResponse.json({ error: 'Reply body is required' }, { status: 400 });

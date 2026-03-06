@@ -14,7 +14,6 @@ import { OverdueTasks } from "@/components/command-center/OverdueTasks";
 import { useAuth } from "@/hooks/useAuth";
 import { useCalendar } from "@/hooks/useCalendar";
 import { useTasks } from "@/hooks/useTasks";
-import { useEmails } from "@/hooks/useEmails";
 import { usePriorityScore } from "@/hooks/usePriorityScore";
 import {
   transformCalendarEvents,
@@ -23,15 +22,10 @@ import {
   transformJeanaItems,
 } from "@/lib/transformers";
 
-interface CommandCenterViewProps {
-  onOpenPreferences?: () => void;
-}
-
-export function CommandCenterView({ onOpenPreferences }: CommandCenterViewProps) {
+export function CommandCenterView() {
   const { isAri } = useAuth();
   const { events: calEvents } = useCalendar();
   const { tasks } = useTasks();
-  const { emails } = useEmails();
   const { items: priorityItems } = usePriorityScore();
 
   const calTimeline = transformCalendarEvents(calEvents);

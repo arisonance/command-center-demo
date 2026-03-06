@@ -16,9 +16,9 @@ export function SyncIndicator({
   className,
 }: SyncIndicatorProps) {
   // Re-render every 30s so "X mins ago" stays fresh
-  const [, setTick] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
 
@@ -62,7 +62,7 @@ export function SyncIndicator({
   }
 
   const minsAgo = lastSyncedAt
-    ? Math.max(0, Math.round((Date.now() - lastSyncedAt.getTime()) / 60_000))
+    ? Math.max(0, Math.round((now - lastSyncedAt.getTime()) / 60_000))
     : null;
 
   const timeLabel =

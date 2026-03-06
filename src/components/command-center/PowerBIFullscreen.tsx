@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Scissors, Send, Upload, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { X, Scissors, Send, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChats } from "@/hooks/useChats";
 import { useAuth } from "@/hooks/useAuth";

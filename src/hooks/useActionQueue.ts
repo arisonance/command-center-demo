@@ -12,7 +12,6 @@ export function useActionQueue() {
   const supabase = createClient();
 
   const fetchActions = useCallback(async () => {
-    setLoading(true);
     const { data, error: fetchError } = await supabase
       .from('action_queue')
       .select('*')
@@ -44,6 +43,7 @@ export function useActionQueue() {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch is async, setState is post-await
     fetchActions();
 
     const channel = supabase

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { usePowerBI } from "@/hooks/usePowerBI";
 import { useConnections } from "@/hooks/useConnections";
 import { ConnectPrompt } from "@/components/ui/ConnectPrompt";
@@ -82,26 +82,23 @@ function ZoomableReport({ src, title, defaultZoom = 0.7 }: { src: string; title:
 export function PowerBIReports({ filterIds }: { filterIds?: string[] } = {}) {
   const { reportConfigs, loading } = usePowerBI();
   const { powerbi: pbiConnected } = useConnections();
-  const [expandedReport, setExpandedReport] = useState<string | null>("trends-auto");
-  const [embedUrls, setEmbedUrls] = useState<Record<string, string>>({});
+  const [embedUrls, setEmbedUrls] = useState<Record<string, string>>(loadStoredUrls);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState("");
   const [fullscreenReport, setFullscreenReport] = useState<{ name: string; url: string } | null>(null);
 
-  // Load saved embed URLs from localStorage on mount
-  useEffect(() => {
-    setEmbedUrls(loadStoredUrls());
-  }, []);
-
   // Auto-expand the first report (Trends) once loaded
-  useEffect(() => {
-    if (reportConfigs.length > 0 && expandedReport === "trends-auto") {
-      const trends = reportConfigs.find(r =>
-        r.report_name?.toLowerCase().includes("trend")
-      );
-      setExpandedReport(trends?.report_id ?? reportConfigs[0].report_id);
-    }
+  const autoExpandId = useMemo(() => {
+    if (reportConfigs.length === 0) return null;
+    const trends = reportConfigs.find(r =>
+      r.report_name?.toLowerCase().includes("trend")
+    );
+    return trends?.report_id ?? reportConfigs[0].report_id;
   }, [reportConfigs]);
+
+  // undefined = use auto, null = all collapsed, string = specific report
+  const [userExpandChoice, setExpandedReport] = useState<string | null | undefined>(undefined);
+  const expandedReport = userExpandChoice !== undefined ? userExpandChoice : autoExpandId;
 
   function handleSaveUrl(reportId: string) {
     const url = draftUrl.trim();

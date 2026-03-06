@@ -12,7 +12,6 @@ export function useSyncStatus() {
   const supabase = createClient();
 
   const fetchLogs = useCallback(async () => {
-    setLoading(true);
     const { data, error: fetchError } = await supabase
       .from('sync_log')
       .select('*')
@@ -28,6 +27,7 @@ export function useSyncStatus() {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch is async, setState is post-await
     fetchLogs();
 
     const channel = supabase

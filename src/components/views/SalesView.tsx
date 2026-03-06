@@ -275,9 +275,6 @@ export function SalesView() {
     });
   }
 
-  const sortArrow = (key: keyof SalesforceOpportunity) =>
-    sortKey === key ? (sortAsc ? " \u25B2" : " \u25BC") : "";
-
   // Chart palette
   const PALETTE = [
     "rgba(0,112,210,0.75)", "rgba(78,205,196,0.75)", "rgba(212,164,76,0.75)",

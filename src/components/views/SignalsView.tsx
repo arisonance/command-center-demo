@@ -6,7 +6,6 @@ import { EmailHygieneCard } from "@/components/command-center/EmailHygieneCard";
 import { useTasks } from "@/hooks/useTasks";
 import { useChats } from "@/hooks/useChats";
 import { transformJeanaItems } from "@/lib/transformers";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useConnections } from "@/hooks/useConnections";
 import { ConnectPrompt } from "@/components/ui/ConnectPrompt";

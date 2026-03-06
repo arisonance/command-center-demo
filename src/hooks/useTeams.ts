@@ -12,7 +12,6 @@ export function useTeams() {
   const supabase = createClient();
 
   const fetchChannels = useCallback(async () => {
-    setLoading(true);
     const { data, error: fetchError } = await supabase
       .from('teams_channels')
       .select('*')
@@ -27,6 +26,7 @@ export function useTeams() {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch is async, setState is post-await
     fetchChannels();
 
     const channel = supabase
