@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePersonDetail } from "@/hooks/usePersonDetail";
+import { usePersonSummary } from "@/hooks/usePersonSummary";
 import type { Person } from "@/hooks/usePeople";
 import type {
   PersonDetailEmail,
@@ -158,6 +159,10 @@ export function PersonDetailPanel({ person, onClose }: PersonDetailPanelProps) {
     person.name,
     person.email,
     person.teamsChatId
+  );
+  const { data: summaryData, loading: summaryLoading } = usePersonSummary(
+    person.name,
+    person.email
   );
   const [activeTab, setActiveTab] = useState<Tab>("timeline");
 
@@ -328,6 +333,97 @@ export function PersonDetailPanel({ person, onClose }: PersonDetailPanelProps) {
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-amber/10 text-accent-amber">
                   {openTaskCount} open task{openTaskCount > 1 ? "s" : ""}
                 </span>
+              )}
+            </div>
+          )}
+
+          {/* Relationship Intelligence */}
+          {(summaryData || summaryLoading) && (
+            <div className="mt-3 space-y-2">
+              {summaryLoading ? (
+                <div className="glass-card p-3 animate-pulse">
+                  <div className="h-3 bg-white/10 rounded w-3/4 mb-2" />
+                  <div className="h-2 bg-white/5 rounded w-1/2" />
+                </div>
+              ) : summaryData && (
+                <>
+                  {/* AI Summary */}
+                  {summaryData.summary && (
+                    <div className="glass-card p-3 rounded-lg">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-accent-teal mb-1">
+                        Relationship Summary
+                      </div>
+                      <div className="text-xs text-text-body leading-relaxed">
+                        {summaryData.summary}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Open Loops */}
+                  {summaryData.openLoops.length > 0 && (
+                    <div className="glass-card p-3 rounded-lg">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-accent-red mb-1.5">
+                        Open Loops ({summaryData.openLoops.length})
+                      </div>
+                      <div className="space-y-1">
+                        {summaryData.openLoops.slice(0, 5).map((loop, i) => (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <span className={cn(
+                              "text-[8px] font-bold uppercase px-1 py-0.5 rounded shrink-0 mt-0.5",
+                              loop.type === "email" ? "tag-email"
+                                : loop.type === "task" ? "tag-asana"
+                                : "tag-slack"
+                            )}>
+                              {loop.type === "email" ? "\u2709" : loop.type === "task" ? "\u2713" : "#"}
+                            </span>
+                            {loop.url && loop.url !== "#" ? (
+                              <a
+                                href={loop.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-text-body hover:text-accent-amber transition-colors line-clamp-1"
+                              >
+                                {loop.label}
+                              </a>
+                            ) : (
+                              <span className="text-[11px] text-text-body line-clamp-1">{loop.label}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shared Context */}
+                  {(summaryData.sharedContext.projects.length > 0 || summaryData.sharedContext.upcomingMeetings.length > 0) && (
+                    <div className="glass-card p-3 rounded-lg">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-accent-amber mb-1.5">
+                        Shared Context
+                      </div>
+                      {summaryData.sharedContext.projects.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1.5">
+                          {summaryData.sharedContext.projects.map((p, i) => (
+                            <span
+                              key={i}
+                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted"
+                            >
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {summaryData.sharedContext.upcomingMeetings.length > 0 && (
+                        <div className="space-y-0.5">
+                          {summaryData.sharedContext.upcomingMeetings.map((m, i) => (
+                            <div key={i} className="text-[11px] text-text-muted">
+                              {"\uD83D\uDCC5"} {m.subject.slice(0, 40)} &middot; {formatDate(m.date)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
