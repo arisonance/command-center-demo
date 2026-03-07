@@ -348,8 +348,52 @@ async function fetchEmails(token: string, sessionId: string) {
     });
 }
 
+async function fetchSentEmails(token: string, sessionId: string) {
+  const result = await cortexCall(
+    token,
+    sessionId,
+    "sent_emails",
+    "m365__list_emails",
+    { limit: 40, folder: "sentitems" }
+  );
+  const emails: Record<string, unknown>[] = result.emails ?? result.value ?? [];
+  const now = new Date().toISOString();
+
+  return emails
+    .filter((m) => !m.isDraft)
+    .slice(0, 30)
+    .map((m) => {
+      const toRecipients = (m.toRecipients ?? []) as Array<{
+        emailAddress?: { name?: string; address?: string };
+      }>;
+      const firstTo = toRecipients[0]?.emailAddress;
+      const sentAt = (m.sentDateTime as string) || (m.createdDateTime as string) || now;
+      return {
+        id: m.id,
+        message_id: m.id,
+        subject: m.subject || "(no subject)",
+        from_name: "",
+        from_email: "",
+        to_name: firstTo?.name || firstTo?.address || "",
+        to_email: firstTo?.address || "",
+        preview: ((m.bodyPreview as string) || "").slice(0, 160),
+        body_html: "",
+        received_at: sentAt,
+        is_read: true,
+        folder: "sent",
+        has_attachments: m.hasAttachments as boolean,
+        outlook_url: m.webLink || "",
+        needs_reply: false,
+        days_overdue: 0,
+        synced_at: now,
+        direction: "sent" as const,
+      };
+    });
+}
+
 async function fetchCalendar(token: string, sessionId: string) {
   const now = new Date();
+  const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const end = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const result = await cortexCall(
     token,
@@ -357,9 +401,9 @@ async function fetchCalendar(token: string, sessionId: string) {
     "cal",
     "m365__list_events",
     {
-      start_date: now.toISOString(),
+      start_date: start.toISOString(),
       end_date: end.toISOString(),
-      limit: 20,
+      limit: 50,
     }
   );
   const events: Record<string, unknown>[] = result.events ?? result.value ?? [];
@@ -695,23 +739,23 @@ async function fetchTeamsChats(token: string, sessionId: string) {
     sessionId,
     "teams1",
     "m365__list_chats",
-    { limit: 20 }
+    { limit: 30 }
   );
   const chats: Record<string, unknown>[] = result.chats ?? [];
   const now = new Date().toISOString();
 
   const withMessages = await Promise.allSettled(
-    chats.slice(0, 8).map(async (chat) => {
+    chats.slice(0, 15).map(async (chat) => {
       const msgsResult = await cortexCall(
         token,
         sessionId,
         `msg_${chat.id}`,
         "m365__list_chat_messages",
-        { chat_id: chat.id as string, limit: 3 }
+        { chat_id: chat.id as string, limit: 10 }
       );
       const messages: Record<string, unknown>[] = msgsResult.messages ?? [];
       const lastMsg = messages[0];
-      const from = lastMsg
+      const lastFrom = lastMsg
         ? ((
             (lastMsg.from as Record<string, unknown>)?.user as Record<
               string,
@@ -719,7 +763,7 @@ async function fetchTeamsChats(token: string, sessionId: string) {
             >
           )?.displayName as string) || ""
         : "";
-      const body = lastMsg
+      const lastBody = lastMsg
         ? (
             (
               (lastMsg.body as Record<string, unknown>)?.content as string
@@ -729,14 +773,36 @@ async function fetchTeamsChats(token: string, sessionId: string) {
             .trim()
             .slice(0, 120)
         : "";
+
+      const individualMessages = messages
+        .filter((msg) => {
+          const msgType = (msg.messageType as string) || "";
+          return msgType === "message" || msgType === "";
+        })
+        .map((msg) => {
+          const fromUser = (
+            (msg.from as Record<string, unknown>)?.user as Record<string, unknown>
+          );
+          const displayName = (fromUser?.displayName as string) || "";
+          const bodyContent = (
+            (msg.body as Record<string, unknown>)?.content as string
+          ) || "";
+          return {
+            from: displayName,
+            text: bodyContent.replace(/<[^>]+>/g, "").trim().slice(0, 120),
+            timestamp: (msg.createdDateTime as string) || now,
+          };
+        })
+        .filter((msg) => msg.from && msg.text);
+
       return {
         id: chat.id,
         chat_id: chat.id,
-        topic: (chat.topic as string) || from || "Teams Chat",
+        topic: (chat.topic as string) || lastFrom || "Teams Chat",
         chat_type: chat.chatType as string,
-        last_message_preview: body,
-        last_sender: from,
-        last_message_from: from,
+        last_message_preview: lastBody,
+        last_sender: lastFrom,
+        last_message_from: lastFrom,
         last_activity: (chat.lastUpdatedDateTime as string) || now,
         members: [],
         web_url:
@@ -744,6 +810,7 @@ async function fetchTeamsChats(token: string, sessionId: string) {
           (chat.webLink as string) ||
           `https://teams.microsoft.com/l/chat/${encodeURIComponent(String(chat.id))}/conversations`,
         synced_at: now,
+        messages: individualMessages,
       };
     })
   );
@@ -1096,8 +1163,9 @@ export async function GET(request: NextRequest) {
   const hasSlack = hasConnection(connections, "slack");
   const hasSalesforce = hasConnection(connections, "salesforce");
   const hasPowerBI = hasConnection(connections, "powerbi");
+  const hasMonday = hasConnection(connections, "monday");
 
-  console.log("[live] Connection status:", { hasM365, hasAsana, hasSlack, hasSalesforce, hasPowerBI });
+  console.log("[live] Connection status:", { hasM365, hasAsana, hasSlack, hasSalesforce, hasPowerBI, hasMonday });
 
   // Initialize Cortex session with user's token
   let sessionId = "";
@@ -1111,6 +1179,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         emails: [],
+        sentEmails: [],
         calendar: [],
         tasks: [],
         asanaComments: [],
@@ -1122,7 +1191,7 @@ export async function GET(request: NextRequest) {
         source: "live",
         errors,
         skipped: ["all — no Cortex session"],
-        connections: { m365: hasM365, asana: hasAsana, slack: hasSlack, salesforce: hasSalesforce, powerbi: hasPowerBI },
+        connections: { m365: hasM365, asana: hasAsana, slack: hasSlack, salesforce: hasSalesforce, powerbi: hasPowerBI, monday: hasMonday },
       },
       { status: 200 }
     );
@@ -1133,6 +1202,7 @@ export async function GET(request: NextRequest) {
 
   if (hasM365) {
     fetches.emails = fetchEmails(cortexToken, sessionId);
+    fetches.sentEmails = fetchSentEmails(cortexToken, sessionId);
     fetches.calendar = fetchCalendar(cortexToken, sessionId);
     fetches.chats = fetchTeamsChats(cortexToken, sessionId);
   } else {
@@ -1192,6 +1262,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     emails: resolved.emails ?? [],
+    sentEmails: resolved.sentEmails ?? [],
     calendar: resolved.calendar ?? [],
     tasks: resolved.tasks ?? [],
     asanaComments: resolved.asanaComments ?? [],
@@ -1206,6 +1277,6 @@ export async function GET(request: NextRequest) {
     source: "live",
     errors,
     skipped,
-    connections: { m365: hasM365, asana: hasAsana, slack: hasSlack, salesforce: hasSalesforce, powerbi: hasPowerBI },
+    connections: { m365: hasM365, asana: hasAsana, slack: hasSlack, salesforce: hasSalesforce, powerbi: hasPowerBI, monday: hasMonday },
   });
 }

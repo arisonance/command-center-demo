@@ -14,6 +14,9 @@ export interface Email {
   needs_reply: boolean;
   days_overdue: number;
   synced_at: string;
+  direction?: 'received' | 'sent';
+  to_name?: string;
+  to_email?: string;
 }
 
 export interface CalendarEvent {
@@ -65,6 +68,12 @@ export interface TeamsChannel {
   is_private: boolean;
 }
 
+export interface ChatMessage {
+  from: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface Chat {
   id: string;
   chat_id: string;
@@ -76,6 +85,7 @@ export interface Chat {
   members: string[];
   web_url?: string;
   synced_at: string;
+  messages?: ChatMessage[];
 }
 
 export interface AsanaCommentThread {

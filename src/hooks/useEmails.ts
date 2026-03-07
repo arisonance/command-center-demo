@@ -3,9 +3,10 @@
 import { useLiveData } from '@/lib/live-data-context';
 
 export function useEmails() {
-  const { emails, loading, error, fetchedAt } = useLiveData();
+  const { emails, sentEmails, loading, error, fetchedAt } = useLiveData();
   return {
     emails,
+    sentEmails,
     loading,
     error,
     lastSynced: fetchedAt?.toISOString() ?? null,

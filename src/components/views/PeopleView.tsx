@@ -34,6 +34,27 @@ const CH_ICONS: Record<string, string> = {
   meeting: "📅",
 };
 
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 0) {
+    // Future event
+    const mins = Math.floor(-diff / 60000);
+    if (mins < 60) return `in ${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `in ${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    return `in ${days}d`;
+  }
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 interface PeopleViewProps {
   people?: Person[];
   loading?: boolean;
@@ -89,6 +110,7 @@ export function PeopleView({ people = [], loading = false }: PeopleViewProps) {
                 const emailItems = person.items.filter(i => i.ch === 'email');
                 const meetingItems = person.items.filter(i => i.ch === 'meeting');
                 const asanaItems = person.items.filter(i => i.ch === 'asana');
+                const slackItems = person.items.filter(i => i.ch === 'slack');
 
                 return (
                   <div
@@ -129,6 +151,11 @@ export function PeopleView({ people = [], loading = false }: PeopleViewProps) {
                               {asanaItems.length > 0 && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded tag-asana">
                                   ✓ {asanaItems.length}
+                                </span>
+                              )}
+                              {slackItems.length > 0 && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded tag-slack">
+                                  # {slackItems.length}
                                 </span>
                               )}
                             </div>
@@ -181,6 +208,11 @@ export function PeopleView({ people = [], loading = false }: PeopleViewProps) {
                                 <div className="text-[11px] text-text-muted mt-0.5 line-clamp-1">{item.preview}</div>
                               )}
                             </div>
+                            {item.timestamp && (
+                              <span className="text-[10px] text-text-muted whitespace-nowrap shrink-0 mt-0.5">
+                                {formatRelativeTime(item.timestamp)}
+                              </span>
+                            )}
                           </div>
                         ))}
 

@@ -6,6 +6,7 @@ import { useCalendar } from './useCalendar';
 import { useTasks } from './useTasks';
 import { useChats } from './useChats';
 import { useAuth } from './useAuth';
+import { useLiveData } from '@/lib/live-data-context';
 
 interface TouchpointItem {
   ch: 'email' | 'teams' | 'asana' | 'slack' | 'meeting';
@@ -44,41 +45,43 @@ function shouldExclude(name: string, email: string): boolean {
     if (ln.includes(ex) || le.includes(ex)) return true;
   }
   if (le.match(/\+(noreply|bounce|mail)\@/)) return true;
-  // Exclude obvious notification/system addresses
   if (le.match(/^(no-?reply|noreply|notification|alert|auto|bounce|mailer|postmaster)/)) return true;
   return false;
 }
 
-// Extract first+last name from "First Last <email>" style or just name
 function normalizeName(name: string): string {
   return name.replace(/<.*>/, '').replace(/\(.*\)/, '').trim();
 }
 
-// Check if a chat topic/name matches a person name
 function chatMatchesPerson(chatTopic: string, personName: string): boolean {
   if (!chatTopic || !personName) return false;
   const ct = chatTopic.toLowerCase();
   const pn = personName.toLowerCase();
-  // Direct match
   if (ct === pn) return true;
-  // First name match in 1:1 chats
   const firstName = pn.split(' ')[0];
   if (firstName.length > 2 && ct === firstName) return true;
-  // Person name appears in chat topic
   const parts = pn.split(' ');
   return parts.length >= 2 && ct.includes(parts[0]) && ct.includes(parts[1]);
 }
 
-// Strip HTML from Teams message previews
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
 }
 
+function isOwnName(name: string, fullName: string): boolean {
+  if (!fullName || !name) return false;
+  const nameLower = name.toLowerCase();
+  const firstNameLower = fullName.split(' ')[0].toLowerCase();
+  if (firstNameLower.length <= 2) return false;
+  return nameLower.includes(firstNameLower);
+}
+
 export function usePeople() {
-  const { emails, loading: emailsLoading } = useEmails();
+  const { emails, sentEmails, loading: emailsLoading } = useEmails();
   const { events, loading: calLoading } = useCalendar();
   const { loading: tasksLoading } = useTasks();
   const { chats, loading: chatsLoading } = useChats();
+  const { slack } = useLiveData();
   const { user } = useAuth();
   const fullName = user?.user_metadata?.full_name ?? "";
 
@@ -86,6 +89,8 @@ export function usePeople() {
   const [now] = useState(() => Date.now());
 
   const people: Person[] = useMemo(() => {
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+
     const map = new Map<string, {
       name: string;
       email: string;
@@ -104,6 +109,7 @@ export function usePeople() {
       chatId?: string
     ) {
       const key = name.toLowerCase().trim();
+      if (!key) return;
       if (!map.has(key)) {
         map.set(key, { name, email, items: [], maxUrgency: 0, lastContactMs: 0 });
       }
@@ -115,7 +121,7 @@ export function usePeople() {
       if (email && !p.email) p.email = email;
     }
 
-    // ── Emails ────────────────────────────────────────────────────────
+    // ── Received Emails ──────────────────────────────────────────────
     for (const email of emails) {
       const rawName = email.from_name || email.from_email || '';
       const name = normalizeName(rawName);
@@ -123,7 +129,6 @@ export function usePeople() {
       if (!name || shouldExclude(name, addr)) continue;
 
       const daysAgo = Math.floor((now - new Date(email.received_at).getTime()) / 86400000);
-      // Recency-based urgency: amber if within 24h, teal if within 7d, gray otherwise
       const urgencyLevel = daysAgo < 1 ? 2 : daysAgo < 7 ? 1 : 0;
 
       upsert(name, addr, {
@@ -136,53 +141,104 @@ export function usePeople() {
       }, urgencyLevel, new Date(email.received_at).getTime());
     }
 
-    // ── Teams DMs — match chat topic to person name ────────────────────
+    // ── Sent Emails ──────────────────────────────────────────────────
+    for (const email of sentEmails) {
+      const rawName = email.to_name || email.to_email || '';
+      const name = normalizeName(rawName);
+      const addr = email.to_email || '';
+      if (!name || shouldExclude(name, addr)) continue;
+
+      const sentMs = new Date(email.received_at).getTime();
+      if (sentMs < sevenDaysAgo) continue;
+
+      const daysAgo = Math.floor((now - sentMs) / 86400000);
+      const urgencyLevel = daysAgo < 1 ? 1 : 0;
+
+      upsert(name, addr, {
+        ch: 'email',
+        text: `↗ ${email.subject}`,
+        url: email.outlook_url || '#',
+        draft: '',
+        timestamp: email.received_at,
+        preview: email.preview?.slice(0, 80),
+      }, urgencyLevel, sentMs);
+    }
+
+    // ── Teams DMs — individual messages per chat ─────────────────────
     for (const chat of chats) {
       const topic = chat.topic || '';
-      const preview = stripHtml(chat.last_message_preview || '');
 
-      // Only 1:1 and small group chats (not "Weekly", "Taskforce", etc.)
       const isGroupKeyword = /taskforce|committee|weekly|sync|standup|all-hands|project|team\b|general|a360/i.test(topic);
       if (isGroupKeyword) continue;
 
-      // Try to find matching person already in map from emails/calendar
-      let matchedKey: string | null = null;
-      for (const [key] of map) {
-        if (chatMatchesPerson(topic, key)) {
-          matchedKey = key;
-          break;
+      const chatMessages = chat.messages || [];
+      const webUrl = chat.web_url || '';
+
+      if (chatMessages.length > 0) {
+        for (const msg of chatMessages) {
+          if (isOwnName(msg.from, fullName)) continue;
+
+          const msgMs = new Date(msg.timestamp).getTime();
+          if (msgMs < sevenDaysAgo) continue;
+
+          const personName = msg.from || topic;
+          if (!personName || personName === 'Teams Chat') continue;
+
+          const daysAgo = Math.floor((now - msgMs) / 86400000);
+          const urgencyLevel = daysAgo < 1 ? 2 : 1;
+
+          upsert(personName, '', {
+            ch: 'teams',
+            text: msg.text ? `Teams: ${msg.text.slice(0, 60)}` : `Teams DM: ${personName}`,
+            url: webUrl,
+            draft: '',
+            timestamp: msg.timestamp,
+            preview: msg.text,
+          }, urgencyLevel, msgMs, chat.id);
         }
-      }
+      } else {
+        // Fallback: use last_message_preview if no individual messages
+        const preview = stripHtml(chat.last_message_preview || '');
 
-      const item: TouchpointItem = {
-        ch: 'teams',
-        text: preview ? `Teams: ${preview.slice(0, 60)}` : `Teams DM: ${topic}`,
-        url: '',
-        draft: '',
-        preview,
-      };
+        let matchedKey: string | null = null;
+        for (const [key] of map) {
+          if (chatMatchesPerson(topic, key)) {
+            matchedKey = key;
+            break;
+          }
+        }
 
-      if (matchedKey) {
-        // Add Teams DM to existing person
-        const p = map.get(matchedKey)!;
-        p.items.unshift(item); // Teams DM goes to top
-        p.maxUrgency = Math.max(p.maxUrgency, 2); // amber — unread DM
-        if (!p.teamsChatId) p.teamsChatId = chat.id;
-      } else if (topic && topic !== 'Teams Chat') {
-        // New person from Teams DM
-        upsert(topic, '', item, 2, now - 3600000, chat.id);
+        const item: TouchpointItem = {
+          ch: 'teams',
+          text: preview ? `Teams: ${preview.slice(0, 60)}` : `Teams DM: ${topic}`,
+          url: webUrl,
+          draft: '',
+          preview,
+        };
+
+        if (matchedKey) {
+          const p = map.get(matchedKey)!;
+          p.items.unshift(item);
+          p.maxUrgency = Math.max(p.maxUrgency, 2);
+          if (!p.teamsChatId) p.teamsChatId = chat.id;
+        } else if (topic && topic !== 'Teams Chat') {
+          upsert(topic, '', item, 2, now - 3600000, chat.id);
+        }
       }
     }
 
-    // ── Calendar: people you meet with today/tomorrow ──────────────────
-    const twoDaysOut = now + 2 * 24 * 60 * 60 * 1000;
+    // ── Calendar: meetings from past 7 days + next 7 days ────────────
+    const sevenDaysOut = now + 7 * 24 * 60 * 60 * 1000;
     for (const event of events) {
       const startMs = new Date(event.start_time).getTime();
-      if (startMs > twoDaysOut || startMs < now - 3600000) continue;
+      if (startMs > sevenDaysOut || startMs < sevenDaysAgo) continue;
       const organizer = normalizeName(event.organizer || '');
       if (!organizer) continue;
       if (shouldExclude(organizer, '')) continue;
-      if (fullName && organizer.toLowerCase().includes(fullName.split(' ')[0].toLowerCase())) continue;
+      if (isOwnName(organizer, fullName)) continue;
+
+      const isPast = startMs < now;
+      const urgencyLevel = isPast ? 0 : 1;
 
       upsert(organizer, '', {
         ch: 'meeting',
@@ -190,12 +246,34 @@ export function usePeople() {
         url: event.join_url || event.outlook_url || '#',
         draft: '',
         timestamp: event.start_time,
-      }, 1, startMs);
+      }, urgencyLevel, startMs);
+    }
+
+    // ── Slack messages ───────────────────────────────────────────────
+    for (const msg of slack) {
+      const name = msg.author_name || '';
+      if (!name || shouldExclude(name, '')) continue;
+      if (isOwnName(name, fullName)) continue;
+
+      const msgMs = new Date(msg.timestamp).getTime();
+      if (msgMs < sevenDaysAgo) continue;
+
+      const daysAgo = Math.floor((now - msgMs) / 86400000);
+      const urgencyLevel = daysAgo < 1 ? 1 : 0;
+
+      upsert(name, '', {
+        ch: 'slack',
+        text: `#${msg.channel_name}: ${(msg.text || '').slice(0, 60)}`,
+        url: msg.permalink || '#',
+        draft: '',
+        timestamp: msg.timestamp,
+        preview: msg.text?.slice(0, 80),
+      }, urgencyLevel, msgMs);
     }
 
     // ── Asana tasks — skipped (assignee field is GID, not name) ─────
 
-    // ── Build result ──────────────────────────────────────────────────
+    // ── Build result ────────────────────────────────────────────────
     const urgencyMap: Record<number, 'red' | 'amber' | 'teal' | 'gray'> = {
       3: 'red', 2: 'amber', 1: 'teal', 0: 'gray',
     };
@@ -204,15 +282,24 @@ export function usePeople() {
     for (const [, p] of map) {
       if (p.items.length === 0) continue;
 
+      // Sort items chronologically (newest first)
+      p.items.sort((a, b) => {
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return tb - ta;
+      });
+
       const emailCount = p.items.filter(i => i.ch === 'email').length;
       const teamsCount = p.items.filter(i => i.ch === 'teams').length;
       const meetingCount = p.items.filter(i => i.ch === 'meeting').length;
       const asanaCount = p.items.filter(i => i.ch === 'asana').length;
+      const slackCount = p.items.filter(i => i.ch === 'slack').length;
 
       const parts: string[] = [];
       if (teamsCount > 0) parts.push(`${teamsCount} Teams DM${teamsCount > 1 ? 's' : ''}`);
       if (emailCount > 0) parts.push(`${emailCount} email${emailCount > 1 ? 's' : ''}`);
       if (meetingCount > 0) parts.push(`${meetingCount} meeting${meetingCount > 1 ? 's' : ''}`);
+      if (slackCount > 0) parts.push(`${slackCount} Slack msg${slackCount > 1 ? 's' : ''}`);
       if (asanaCount > 0) parts.push(`${asanaCount} task${asanaCount > 1 ? 's' : ''}`);
 
       // Format last contact
@@ -230,7 +317,7 @@ export function usePeople() {
         email: p.email,
         urgency: urgencyMap[p.maxUrgency],
         touchpoints: p.items.length,
-        items: p.items.slice(0, 6),
+        items: p.items.slice(0, 15),
         action: parts.join(' · ') || 'Review',
         lastContact,
         teamsChatId: p.teamsChatId,
@@ -245,7 +332,7 @@ export function usePeople() {
     });
 
     return result;
-  }, [emails, events, chats, fullName, now]);
+  }, [emails, sentEmails, events, chats, slack, fullName, now]);
 
   return { people, loading };
 }

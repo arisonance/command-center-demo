@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/auth/cortex/callback", "/auth/signout"];
+const CORTEX_CLIENT_SECRET = process.env.CORTEX_CLIENT_SECRET;
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -26,21 +27,25 @@ export async function middleware(request: NextRequest) {
     try {
       const cortexUrl = process.env.NEXT_PUBLIC_CORTEX_URL;
       const clientId = process.env.CORTEX_CLIENT_ID;
-      const clientSecret = process.env.CORTEX_CLIENT_SECRET;
 
-      if (!cortexUrl || !clientId || !clientSecret) {
+      if (!cortexUrl || !clientId) {
         return NextResponse.redirect(new URL("/login", request.url));
+      }
+
+      const body: Record<string, string> = {
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+      };
+
+      if (CORTEX_CLIENT_SECRET) {
+        body.client_secret = CORTEX_CLIENT_SECRET;
       }
 
       const res = await fetch(`${cortexUrl}/api/v1/oauth2/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          grant_type: "refresh_token",
-          refresh_token: refreshToken,
-          client_id: clientId,
-          client_secret: clientSecret,
-        }),
+        body: JSON.stringify(body),
       });
 
       const tokens = await res.json();

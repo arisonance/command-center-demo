@@ -1,4 +1,5 @@
 import { exchangeCodeForTokens, getUserInfo } from "@/lib/cortex/auth";
+import { getCortexRedirectUri } from "@/lib/cortex/redirect";
 import { createServiceClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   }
 
   // Exchange code for tokens
-  const redirectUri = `${origin}/auth/cortex/callback`;
+  const redirectUri = getCortexRedirectUri(origin);
   const tokens = await exchangeCodeForTokens(code, codeVerifier, redirectUri);
 
   if (tokens.error) {

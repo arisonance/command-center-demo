@@ -5,7 +5,7 @@
 
 const CORTEX_URL = process.env.NEXT_PUBLIC_CORTEX_URL!;
 const CLIENT_ID = process.env.CORTEX_CLIENT_ID!;
-const CLIENT_SECRET = process.env.CORTEX_CLIENT_SECRET!;
+const CLIENT_SECRET = process.env.CORTEX_CLIENT_SECRET;
 
 interface TokenResponse {
   access_token: string;
@@ -33,17 +33,22 @@ export async function exchangeCodeForTokens(
   codeVerifier: string,
   redirectUri: string
 ): Promise<TokenResponse> {
+  const body: Record<string, string> = {
+    grant_type: "authorization_code",
+    code,
+    client_id: CLIENT_ID,
+    code_verifier: codeVerifier,
+    redirect_uri: redirectUri,
+  };
+
+  if (CLIENT_SECRET) {
+    body.client_secret = CLIENT_SECRET;
+  }
+
   const res = await fetch(`${CORTEX_URL}/api/v1/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "authorization_code",
-      code,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      code_verifier: codeVerifier,
-      redirect_uri: redirectUri,
-    }),
+    body: JSON.stringify(body),
   });
 
   return res.json();
@@ -52,15 +57,20 @@ export async function exchangeCodeForTokens(
 export async function refreshAccessToken(
   refreshToken: string
 ): Promise<TokenResponse> {
+  const body: Record<string, string> = {
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: CLIENT_ID,
+  };
+
+  if (CLIENT_SECRET) {
+    body.client_secret = CLIENT_SECRET;
+  }
+
   const res = await fetch(`${CORTEX_URL}/api/v1/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-    }),
+    body: JSON.stringify(body),
   });
 
   return res.json();

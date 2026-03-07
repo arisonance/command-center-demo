@@ -25,10 +25,12 @@ export interface ConnectionStatus {
   slack: boolean;
   salesforce: boolean;
   powerbi: boolean;
+  monday: boolean;
 }
 
 interface LiveDataState {
   emails: Email[];
+  sentEmails: Email[];
   calendar: CalendarEvent[];
   tasks: Task[];
   asanaComments: AsanaCommentThread[];
@@ -50,6 +52,7 @@ const RETRY_MS = 60_000; // 60 seconds on error
 
 export function LiveDataProvider({ children }: { children: ReactNode }) {
   const [emails, setEmails] = useState<Email[]>([]);
+  const [sentEmails, setSentEmails] = useState<Email[]>([]);
   const [calendar, setCalendar] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [asanaComments, setAsanaComments] = useState<AsanaCommentThread[]>([]);
@@ -57,7 +60,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [slack, setSlack] = useState<SlackFeedMessage[]>([]);
   const [powerbi, setPowerbi] = useState<{ reports: unknown[]; kpis: unknown[] }>({ reports: [], kpis: [] });
-  const [connections, setConnections] = useState<ConnectionStatus>({ m365: false, asana: false, slack: false, salesforce: false, powerbi: false });
+  const [connections, setConnections] = useState<ConnectionStatus>({ m365: false, asana: false, slack: false, salesforce: false, powerbi: false, monday: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
@@ -70,6 +73,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setEmails((data.emails ?? []) as Email[]);
+      setSentEmails((data.sentEmails ?? []) as Email[]);
       setCalendar((data.calendar ?? []) as CalendarEvent[]);
       setTasks((data.tasks ?? []) as Task[]);
       setAsanaComments((data.asanaComments ?? []) as AsanaCommentThread[]);
@@ -105,6 +109,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
     <LiveDataContext.Provider
       value={{
         emails,
+        sentEmails,
         calendar,
         tasks,
         asanaComments,

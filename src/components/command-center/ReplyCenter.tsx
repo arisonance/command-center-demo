@@ -183,6 +183,10 @@ function formatRecipientList(values: string[]) {
   return values.join(", ");
 }
 
+function buildPriorityReasonLine(item: ReplyQueueItem) {
+  return item.priorityReasons.join(" · ");
+}
+
 function ScoreBadge({ score }: { score: number }) {
   const styles =
     score >= 80
@@ -599,9 +603,19 @@ export function ReplyCenter() {
           </div>
           <div className="max-h-[360px] overflow-y-auto rounded-xl border border-[var(--bg-card-border)] bg-black/10 p-4">
             <p className="whitespace-pre-wrap text-xs leading-6 text-text-body">
-              {detail.bodyText || item.message || item.summary}
+              {detail.latestMessageText || detail.bodyText || item.message || item.summary}
             </p>
           </div>
+          {detail.earlierThreadText && (
+            <details className="rounded-xl border border-[var(--bg-card-border)] bg-black/10 p-3">
+              <summary className="cursor-pointer text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
+                Earlier thread context
+              </summary>
+              <p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-text-body">
+                {detail.earlierThreadText}
+              </p>
+            </details>
+          )}
         </div>
       );
     }
@@ -937,6 +951,14 @@ export function ReplyCenter() {
                         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-text-body">
                           {item.summary}
                         </p>
+                        {item.priorityReasons.length > 0 && (
+                          <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+                            <span className="mr-1 uppercase tracking-[0.18em] text-[10px] text-accent-amber">
+                              Why
+                            </span>
+                            {buildPriorityReasonLine(item)}
+                          </p>
+                        )}
 
                         <div className="mt-3 flex flex-wrap gap-1.5">
                           {priorityPills.map((pill) => (
@@ -1039,6 +1061,15 @@ export function ReplyCenter() {
                           </div>
                         )}
                       </div>
+
+                      {item.priorityReasons.length > 0 && (
+                        <div className="mb-4 rounded-xl border border-[var(--bg-card-border)] bg-black/10 px-3 py-2 text-[11px] text-text-muted">
+                          <span className="mr-2 uppercase tracking-[0.18em] text-[10px] text-accent-amber">
+                            Why this is high
+                          </span>
+                          {buildPriorityReasonLine(item)}
+                        </div>
+                      )}
 
                       {renderContext(item)}
                       {renderComposer(item)}

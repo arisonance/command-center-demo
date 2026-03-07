@@ -39,6 +39,7 @@ export interface ReplyQueueItem {
   score: number;
   displayScore: number;
   prioritySignals: ReplyPrioritySignals;
+  priorityReasons: string[];
 }
 
 const EMAIL_NOISE =
@@ -232,6 +233,90 @@ function scoreAsana(
   return clampScore(score);
 }
 
+function buildEmailPriorityReasons(
+  email: Email,
+  flags: ReturnType<typeof detectContentFlags>,
+  daysAgo: number
+) {
+  const reasons: string[] = [];
+
+  if (!email.is_read) reasons.push("Unread");
+  if (flags.urgent) reasons.push("Urgent language");
+  if (flags.financial) reasons.push("Financial topic");
+  if (flags.legal) reasons.push("Legal or compliance topic");
+  if (email.has_attachments) reasons.push("Has attachment");
+  if (email.days_overdue > 0) reasons.push(`Waiting ${email.days_overdue}d`);
+  if (daysAgo === 0) reasons.push("Arrived today");
+  else if (daysAgo === 1) reasons.push("Arrived yesterday");
+
+  return reasons.slice(0, 4);
+}
+
+function buildTeamsPriorityReasons(
+  chat: Chat,
+  flags: ReturnType<typeof detectContentFlags>,
+  groupConversation: boolean
+) {
+  const reasons: string[] = [];
+  const hours = ageInHours(chat.last_activity);
+
+  if (hours <= 4) reasons.push("Active this morning");
+  else if (hours <= 24) reasons.push("Recent thread");
+  if (groupConversation) reasons.push("Multiple people waiting");
+  if (flags.urgent) reasons.push("Urgent language");
+  if (flags.financial) reasons.push("Financial topic");
+  if (flags.legal) reasons.push("Legal or compliance topic");
+
+  return reasons.slice(0, 4);
+}
+
+function buildSlackPriorityReasons(
+  message: SlackFeedMessage,
+  flags: ReturnType<typeof detectContentFlags>
+) {
+  const reasons: string[] = [];
+  const hours = ageInHours(message.timestamp);
+
+  if (hours <= 6) reasons.push("Fresh thread");
+  if (message.thread_reply_count > 0) {
+    reasons.push(
+      message.thread_reply_count === 1
+        ? "1 reply waiting"
+        : `${message.thread_reply_count} replies waiting`
+    );
+  }
+  if (message.has_files) reasons.push("Shared files");
+  if ((message.reactions ?? []).length > 0) reasons.push("Reaction activity");
+  if (flags.urgent) reasons.push("Urgent language");
+
+  return reasons.slice(0, 4);
+}
+
+function buildAsanaPriorityReasons(
+  thread: AsanaCommentThread,
+  flags: ReturnType<typeof detectContentFlags>
+) {
+  const reasons: string[] = [];
+  const relevanceMap: Record<AsanaCommentThread["relevance_reason"], string> = {
+    assignee: "Assigned to you",
+    collaborator: "You are a collaborator",
+    follower: "You are following",
+    prior_commenter: "You were already in the thread",
+    creator: "You created the task",
+  };
+
+  reasons.push(relevanceMap[thread.relevance_reason]);
+  reasons.push("New comment");
+  if (thread.participant_names.length > 2) {
+    reasons.push(`${thread.participant_names.length} participants`);
+  }
+  if (flags.urgent) reasons.push("Urgent language");
+  if (flags.financial) reasons.push("Financial topic");
+  if (flags.legal) reasons.push("Legal or compliance topic");
+
+  return reasons.slice(0, 4);
+}
+
 function getSlackTags(message: SlackFeedMessage): string[] {
   const tags: string[] = [];
 
@@ -320,6 +405,7 @@ export function buildReplyQueue({
     if (!email.is_read) tags.push("Unread");
     if (email.has_attachments) tags.push("Attachments");
     if (email.days_overdue > 0) tags.push("Aging");
+    const score = scoreEmail(email, flags);
 
     items.push({
       id: `email:${email.message_id || email.id}`,
@@ -336,12 +422,13 @@ export function buildReplyQueue({
       tags,
       meta: formatRelativeTime(email.received_at),
       sortTime: new Date(email.received_at).getTime(),
-      score: scoreEmail(email, flags),
-      displayScore: scoreEmail(email, flags),
+      score,
+      displayScore: score,
       prioritySignals: buildSignals(flags, {
         aging: email.days_overdue > 0,
         recent: daysAgo <= 1,
       }),
+      priorityReasons: buildEmailPriorityReasons(email, flags, daysAgo),
     });
   }
 
@@ -390,6 +477,11 @@ export function buildReplyQueue({
         multiplePeopleWaiting: groupConversation,
         recent: ageInHours(chat.last_activity) <= 24,
       }),
+      priorityReasons: buildTeamsPriorityReasons(
+        chat,
+        flags,
+        groupConversation
+      ),
     });
   }
 
@@ -429,6 +521,7 @@ export function buildReplyQueue({
         multiplePeopleWaiting: message.thread_reply_count > 2,
         recent: ageInHours(message.timestamp) <= 24,
       }),
+      priorityReasons: buildSlackPriorityReasons(message, flags),
     });
   }
 
@@ -458,6 +551,7 @@ export function buildReplyQueue({
         multiplePeopleWaiting: thread.participant_names.length > 2,
         recent: ageInHours(thread.latest_comment_at) <= 24,
       }),
+      priorityReasons: buildAsanaPriorityReasons(thread, flags),
     });
   }
 

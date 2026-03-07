@@ -13,6 +13,8 @@ export interface EmailDetail {
   receivedAt: string;
   bodyText: string;
   bodyHtml: string;
+  latestMessageText: string;
+  earlierThreadText: string;
   replyableText: string;
 }
 
@@ -71,8 +73,20 @@ const QUOTED_MARKERS = [
 ];
 
 export function stripQuotedText(value: string | null | undefined): string {
+  return splitThreadText(value).latestMessageText;
+}
+
+export function splitThreadText(value: string | null | undefined): {
+  latestMessageText: string;
+  earlierThreadText: string;
+} {
   const normalized = normalizePlainText(value || "");
-  if (!normalized) return "";
+  if (!normalized) {
+    return {
+      latestMessageText: "",
+      earlierThreadText: "",
+    };
+  }
 
   const lines = normalized.split("\n");
   const quotedAt = lines.findIndex((line, index) => {
@@ -82,13 +96,26 @@ export function stripQuotedText(value: string | null | undefined): string {
   });
 
   if (quotedAt >= 3) {
-    const candidate = normalizePlainText(lines.slice(0, quotedAt).join("\n"));
-    if (candidate.length >= 24) {
-      return candidate;
+    const latestMessageText = normalizePlainText(
+      lines.slice(0, quotedAt).join("\n")
+    );
+    const earlierThreadText = normalizePlainText(
+      lines.slice(quotedAt).join("\n")
+    );
+
+    if (latestMessageText.length >= 24) {
+      return {
+        latestMessageText,
+        earlierThreadText:
+          earlierThreadText.length >= 24 ? earlierThreadText : "",
+      };
     }
   }
 
-  return normalized;
+  return {
+    latestMessageText: normalized,
+    earlierThreadText: "",
+  };
 }
 
 function parseParticipant(value: unknown): EmailParticipant {
@@ -136,7 +163,8 @@ export function extractEmailDetail(
   );
   const preview = String(payload.bodyPreview ?? payload.preview ?? "");
   const bodyText = htmlToText(bodyHtml) || normalizePlainText(preview);
-  const replyableText = stripQuotedText(bodyText);
+  const { latestMessageText, earlierThreadText } = splitThreadText(bodyText);
+  const replyableText = latestMessageText || bodyText;
 
   return {
     messageId: String(payload.id ?? payload.message_id ?? fallbackMessageId),
@@ -150,6 +178,8 @@ export function extractEmailDetail(
     ),
     bodyText,
     bodyHtml,
+    latestMessageText,
+    earlierThreadText,
     replyableText: replyableText || bodyText,
   };
 }

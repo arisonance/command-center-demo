@@ -28,15 +28,17 @@ interface ThroughputItem {
 interface MondayData {
   orders: MondayOrder[];
   throughput: ThroughputItem[];
+  connected: boolean;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 }
 
-export function useMonday(): MondayData {
+export function useMonday(skip = false): MondayData {
   const [orders, setOrders] = useState<MondayOrder[]>([]);
   const [throughput, setThroughput] = useState<ThroughputItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(true);
+  const [loading, setLoading] = useState(!skip);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -46,6 +48,7 @@ export function useMonday(): MondayData {
       const res = await fetch('/api/data/monday');
       if (!res.ok) throw new Error(`Monday fetch failed: ${res.status}`);
       const data = await res.json();
+      setConnected(data.connected !== false);
       setOrders(data.orders ?? []);
       setThroughput(data.throughput ?? []);
     } catch (e) {
@@ -55,7 +58,9 @@ export function useMonday(): MondayData {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    if (!skip) fetchData();
+  }, [fetchData, skip]);
 
-  return { orders, throughput, loading, error, refetch: fetchData };
+  return { orders, throughput, connected, loading, error, refetch: fetchData };
 }

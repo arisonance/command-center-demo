@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
   let resolvedMessage = String(body.message ?? "").trim();
   let resolvedSender = String(body.sender ?? "").trim();
   let resolvedSubject = String(body.subject ?? "").trim();
+  let earlierContext = "";
 
   if (channel === "email") {
     if (!messageId) {
@@ -77,9 +78,10 @@ export async function POST(request: NextRequest) {
     );
 
     const email = extractEmailDetail(rawMessage, messageId);
-    resolvedMessage = email.replyableText || email.bodyText;
+    resolvedMessage = email.latestMessageText || email.replyableText || email.bodyText;
     resolvedSender = email.fromName || email.fromEmail || resolvedSender;
     resolvedSubject = email.subject || resolvedSubject;
+    earlierContext = email.earlierThreadText || "";
   }
 
   if (!resolvedMessage || !resolvedSender || !resolvedSubject) {
@@ -111,8 +113,11 @@ Output only the reply body. No subject line. No explanation.`;
             `Incoming ${channel} subject: ${resolvedSubject}`,
             `From: ${resolvedSender}`,
             "",
-            "Incoming message:",
+            "Latest message to reply to:",
             trimForModel(resolvedMessage),
+            earlierContext
+              ? `\nEarlier thread context:\n${trimForModel(earlierContext, 4000)}`
+              : "",
             "",
             "Reply guidance:",
             prompt,

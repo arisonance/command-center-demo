@@ -1,74 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCortexToken } from "@/lib/cortex/client";
-
-const CORTEX_URL =
-  process.env.NEXT_PUBLIC_CORTEX_URL || "https://cortex-bice.vercel.app";
-
-// ─── Cortex MCP client (per-user token) ─────────────────────────────────────
-
-async function cortexInit(token: string): Promise<string> {
-  const res = await fetch(`${CORTEX_URL}/mcp/cortex`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      "mcp-protocol-version": "2024-11-05",
-      "x-cortex-client": "cortex-mcp-stdio",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "init",
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "command-center", version: "2.0.0" },
-      },
-    }),
-  });
-  const sessionId = res.headers.get("mcp-session-id");
-  if (!sessionId) {
-    const body = await res.text();
-    throw new Error(
-      `Cortex init failed — no session ID. Status: ${res.status}. Body: ${body.slice(0, 200)}`
-    );
-  }
-  return sessionId;
-}
-
-async function cortexCall(
-  token: string,
-  sessionId: string,
-  id: string,
-  tool: string,
-  args: Record<string, unknown>
-) {
-  const res = await fetch(`${CORTEX_URL}/mcp/cortex`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      "mcp-protocol-version": "2024-11-05",
-      "x-cortex-client": "cortex-mcp-stdio",
-      "mcp-session-id": sessionId,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id,
-      method: "tools/call",
-      params: { name: tool, arguments: args },
-    }),
-  });
-  const data = (await res.json()) as {
-    result?: { content?: { text?: string }[] };
-  };
-  const text = data?.result?.content?.[0]?.text ?? "{}";
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {};
-  }
-}
+import { getCortexToken, cortexInit, cortexCall } from "@/lib/cortex/client";
+import { getConnections } from "@/lib/cortex/connections";
 
 // ─── Column value helpers ─────────────────────────────────────────────────────
 
@@ -168,6 +100,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  // Check if Monday.com is connected
+  const connections = await getConnections(cortexToken);
+  const hasMonday = connections.some(
+    (c) => (c.mcp_name === "monday" || c.provider === "monday") && c.connected
+  );
+
+  if (!hasMonday) {
+    return NextResponse.json({
+      orders: [],
+      throughput: [],
+      connected: false,
+      fetchedAt: new Date().toISOString(),
+    });
+  }
+
   const errors: Record<string, string | null> = {};
 
   let sessionId = "";
@@ -193,6 +140,7 @@ export async function GET(request: NextRequest) {
       throughputResult.status === "fulfilled"
         ? throughputResult.value
         : [],
+    connected: true,
     fetchedAt: new Date().toISOString(),
     errors,
   });

@@ -7,6 +7,7 @@ import {
   generateCodeVerifier,
   generateCodeChallenge,
 } from "@/lib/cortex/pkce";
+import { getCortexRedirectUri } from "@/lib/cortex/redirect";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_allowed:
@@ -32,9 +33,10 @@ function LoginContent() {
     document.cookie = `cortex_code_verifier=${codeVerifier}; path=/; max-age=600; samesite=lax`;
     document.cookie = `cortex_oauth_state=${state}; path=/; max-age=600; samesite=lax`;
 
+    const redirectUri = getCortexRedirectUri(window.location.origin);
     const params = new URLSearchParams({
       client_id: process.env.NEXT_PUBLIC_CORTEX_CLIENT_ID!,
-      redirect_uri: `${window.location.origin}/auth/cortex/callback`,
+      redirect_uri: redirectUri,
       response_type: "code",
       scope: "profile email mcp:execute mcp:list",
       state,

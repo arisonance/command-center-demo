@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useMonday } from "@/hooks/useMonday";
+import { ConnectPrompt } from "@/components/ui/ConnectPrompt";
 
 // ─── Status badge colors ────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ function KPICard({ label, value, color, delay }: { label: string; value: string 
 // ─── Main View ──────────────────────────────────────────────────────────────
 
 export function MindensView() {
-  const { orders, throughput, loading, error } = useMonday();
+  const { orders, throughput, connected, loading, error } = useMonday();
   const [prodOpen, setProdOpen] = useState(true);
 
   const activeOrders = useMemo(() =>
@@ -72,6 +73,14 @@ export function MindensView() {
     }
     return Array.from(map.values()).sort((a, b) => a.station.localeCompare(b.station));
   }, [throughput]);
+
+  if (!connected) {
+    return (
+      <div className="glass-card p-6">
+        <ConnectPrompt service="Monday.com" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
