@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useEmails } from './useEmails';
 import { useCalendar } from './useCalendar';
 import { useTasks } from './useTasks';
@@ -368,6 +368,40 @@ export function usePeople() {
 
     return result;
   }, [emails, sentEmails, events, chats, slack, tasks, fullName, now]);
+
+  // ── Sync scored people to Supabase on each computation ─────────────
+  const syncedRef = useRef<string>('');
+  useEffect(() => {
+    if (people.length === 0 || !user?.email) return;
+    const fingerprint = people.slice(0, 10).map(p => p.name).join(',');
+    if (fingerprint === syncedRef.current) return;
+    syncedRef.current = fingerprint;
+
+    const payload = people.map(p => {
+      const channels: Record<string, number> = {};
+      for (const item of p.items) {
+        channels[item.ch] = (channels[item.ch] || 0) + 1;
+      }
+      const newestTs = p.items.find(i => i.timestamp)?.timestamp;
+      return {
+        name: p.name,
+        email: p.email || null,
+        urgency: p.urgency,
+        urgencyScore: p.urgency === 'red' ? 3 : p.urgency === 'amber' ? 2 : p.urgency === 'teal' ? 1 : 0,
+        touchpoints: p.touchpoints,
+        lastContactAt: newestTs || null,
+        channels,
+        action: p.action,
+        teamsChatId: p.teamsChatId || null,
+      };
+    });
+
+    fetch('/api/sync/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ people: payload, user_id: user.email }),
+    }).catch(() => {});
+  }, [people, user?.email]);
 
   return { people, loading };
 }
