@@ -671,7 +671,7 @@ function MeetingCard({ meeting, isUpcoming }: { meeting: PersonDetailMeeting; is
           <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent-teal/10 text-accent-teal font-medium">Online</span>
         )}
         {meeting.location && !meeting.isOnline && (
-          <span className="text-[10px] text-text-muted truncate max-w-[150px]">{meeting.location}</span>
+          <span className="text-[10px] text-text-muted truncate max-w-[150px]">{typeof meeting.location === 'string' ? meeting.location : (meeting.location as Record<string, unknown>)?.displayName as string || ''}</span>
         )}
         {meeting.attendeeCount != null && meeting.attendeeCount > 0 && (
           <span className="text-[10px] text-text-muted">

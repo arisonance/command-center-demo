@@ -1,5 +1,18 @@
 import type { CalendarEvent, Task, Email, SlackFeedMessage } from './types';
 
+/** Safely extract a display string from a field that may be a string or M365 object */
+function safeStr(val: unknown): string {
+  if (typeof val === 'string') return val;
+  if (!val || typeof val !== 'object') return '';
+  const obj = val as Record<string, unknown>;
+  if (typeof obj.displayName === 'string') return obj.displayName;
+  if (obj.emailAddress && typeof obj.emailAddress === 'object') {
+    const ea = obj.emailAddress as Record<string, unknown>;
+    return (ea.name as string) || (ea.address as string) || '';
+  }
+  return '';
+}
+
 // ---------- Shared helpers ----------
 
 function toPST(iso: string): Date {
@@ -119,7 +132,7 @@ export function transformCalendarEvents(events: CalendarEvent[]): CalEvent[] {
     const calEvent: CalEvent = {
       time: formatTimeRange(ev.start_time, ev.end_time),
       title: ev.subject,
-      meta: ev.location || ev.organizer || '',
+      meta: safeStr(ev.location) || safeStr(ev.organizer) || '',
       type: isLongest ? 'highlight' : 'normal',
       dotColor: isLongest ? 'amber' : undefined,
       startH: startDec,
@@ -141,7 +154,7 @@ export function transformCalendarEvents(events: CalendarEvent[]): CalEvent[] {
         calEvent.overlay = {
           time: formatTime12(otherPST),
           title: other.subject,
-          meta: other.location || other.organizer || '',
+          meta: safeStr(other.location) || safeStr(other.organizer) || '',
           dotColor: 'teal',
           url: other.outlook_url || '',
         };
@@ -202,13 +215,9 @@ export function transformMeetingPrep(events: CalendarEvent[]): MeetingPrepItem[]
     .map((ev) => ({
       time: formatTimeRange(ev.start_time, ev.end_time),
       name: ev.subject,
-      oneLiner: ev.location
-        ? ev.location
-        : ev.is_online
-        ? 'Online meeting'
-        : ev.organizer
-        ? `Organized by ${ev.organizer}`
-        : '',
+      oneLiner: safeStr(ev.location)
+        || (ev.is_online ? 'Online meeting' : '')
+        || (safeStr(ev.organizer) ? `Organized by ${safeStr(ev.organizer)}` : ''),
       details: [],
       url: ev.outlook_url || '',
     }));

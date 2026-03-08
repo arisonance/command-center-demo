@@ -232,7 +232,9 @@ export function usePeople() {
     for (const event of events) {
       const startMs = new Date(event.start_time).getTime();
       if (startMs > sevenDaysOut || startMs < sevenDaysAgo) continue;
-      const organizer = normalizeName(event.organizer || '');
+      const rawOrg = event.organizer;
+      const orgStr = typeof rawOrg === 'string' ? rawOrg : (rawOrg as Record<string, unknown>)?.displayName as string || '';
+      const organizer = normalizeName(orgStr);
       if (!organizer) continue;
       if (shouldExclude(organizer, '')) continue;
       if (isOwnName(organizer, fullName)) continue;

@@ -57,7 +57,7 @@ function EventCard({ ev, now }: { ev: CalendarEvent; now: Date }) {
           )}
         </div>
         <div className="text-sm font-medium text-text-heading mt-0.5">{ev.subject}</div>
-        {ev.location && <div className="text-xs text-text-muted mt-0.5">{ev.location}</div>}
+        {ev.location && <div className="text-xs text-text-muted mt-0.5">{typeof ev.location === 'string' ? ev.location : (ev.location as Record<string, unknown>)?.displayName as string || ''}</div>}
       </div>
       {ev.join_url && ev.is_online && (
         <a
@@ -145,7 +145,7 @@ export function CalendarView() {
                 All day
               </span>
               <span className="text-sm font-medium text-text-heading truncate">{ev.subject}</span>
-              {ev.location && <span className="text-xs text-text-muted truncate">{ev.location}</span>}
+              {ev.location && <span className="text-xs text-text-muted truncate">{typeof ev.location === 'string' ? ev.location : (ev.location as Record<string, unknown>)?.displayName as string || ''}</span>}
             </div>
           ))}
 
@@ -208,7 +208,7 @@ export function CalendarView() {
                             </span>
                           </div>
                           <div className="text-sm font-medium text-text-heading mt-0.5">{ev.subject}</div>
-                          {ev.location && <div className="text-xs text-text-muted mt-0.5">{ev.location}</div>}
+                          {ev.location && <div className="text-xs text-text-muted mt-0.5">{typeof ev.location === 'string' ? ev.location : (ev.location as Record<string, unknown>)?.displayName as string || ''}</div>}
                         </div>
                         {ev.join_url && ev.is_online && (
                           <a
